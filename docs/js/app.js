@@ -4,30 +4,18 @@ import { el, renderNoteHtml, formatDate, todayISO, debounce } from './util.js';
 const root = document.getElementById('root');
 
 const state = {
-  user: null,
   notebooks: [],
   notebookId: null,
   view: 'daily', // 'daily' | 'page'
   page: null, // focused page object (page view)
   pageTitles: [], // titles in current notebook, for [[ autocomplete
-  feedBefore: null, // pagination cursor for daily feed
 };
 
 const LS_NB = 'notepad.notebookId';
 
 /* --------------------------------- boot ----------------------------------- */
 
-init();
-
-async function init() {
-  try {
-    const { user } = await api.me();
-    state.user = user;
-    await loadWorkspace();
-  } catch {
-    renderAuth();
-  }
-}
+loadWorkspace();
 
 async function loadWorkspace() {
   state.notebooks = await api.listNotebooks();
@@ -46,62 +34,6 @@ async function refreshPageTitles() {
   } catch {
     state.pageTitles = [];
   }
-}
-
-/* ------------------------------ auth screen ------------------------------- */
-
-function renderAuth() {
-  let mode = 'login';
-  root.innerHTML = '';
-
-  const draw = () => {
-    root.innerHTML = '';
-    const err = el('div', { class: 'auth-error' });
-    const email = el('input', { class: 'field', type: 'email', placeholder: 'you@example.com', autocomplete: 'email' });
-    const pass = el('input', { class: 'field', type: 'password', placeholder: 'Password (min 6 chars)', autocomplete: mode === 'login' ? 'current-password' : 'new-password' });
-
-    const submit = el('button', { class: 'btn primary', type: 'submit' }, mode === 'login' ? 'Log in' : 'Create account');
-
-    const form = el('form', {
-      class: 'auth-form',
-      onSubmit: async (e) => {
-        e.preventDefault();
-        err.textContent = '';
-        submit.disabled = true;
-        try {
-          const fn = mode === 'login' ? api.login : api.register;
-          const { user } = await fn(email.value.trim(), pass.value);
-          state.user = user;
-          await loadWorkspace();
-        } catch (ex) {
-          err.textContent = ex.message;
-          submit.disabled = false;
-        }
-      },
-    }, [
-      el('label', { class: 'field-label', text: 'Email' }), email,
-      el('label', { class: 'field-label', text: 'Password' }), pass,
-      err,
-      submit,
-    ]);
-
-    const toggle = el('button', {
-      class: 'link-btn',
-      type: 'button',
-      onClick: () => { mode = mode === 'login' ? 'register' : 'login'; draw(); },
-    }, mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Log in');
-
-    root.append(el('div', { class: 'auth-wrap' }, [
-      el('div', { class: 'auth-card' }, [
-        el('div', { class: 'auth-brand' }, [el('span', { class: 'logo', text: '📓' }), el('span', { text: 'Notepad' })]),
-        el('p', { class: 'auth-tag', text: 'Daily notes, backlinks, and notebooks — your own private space.' }),
-        form,
-        toggle,
-      ]),
-    ]));
-    email.focus();
-  };
-  draw();
 }
 
 /* ------------------------------- app shell -------------------------------- */
@@ -160,12 +92,13 @@ function renderSidebar() {
   }, 180);
   search.addEventListener('input', doSearch);
   side.append(el('div', { class: 'side-section grow' }, [el('label', { class: 'side-label', text: 'Pages' }), search, results]));
-  api.listPages(state.notebookId).then((pages) => renderPageList(results, pages));
+  renderPageList(results, api.listPages(state.notebookId));
 
-  // User
+  // Local data footer: everything lives in this browser.
   side.append(el('div', { class: 'user-row' }, [
-    el('span', { class: 'user-email', title: state.user.email, text: state.user.email }),
-    el('button', { class: 'link-btn', onClick: doLogout }, 'Log out'),
+    el('span', { class: 'user-email', title: 'Notes are stored privately in this browser', text: '🔒 Saved in this browser' }),
+    el('button', { class: 'link-btn', onClick: exportNotes }, 'Export'),
+    el('button', { class: 'link-btn', onClick: importNotes }, 'Import'),
   ]));
 
   return side;
@@ -181,7 +114,7 @@ function renderPageList(container, pages) {
     const label = p.isDaily ? formatDate(p.dailyDate).full : p.title;
     container.append(el('button', {
       class: 'page-link',
-      onClick: () => (p.isDaily ? openPageById(p.id) : openPageById(p.id)),
+      onClick: () => openPageById(p.id),
     }, [el('span', { class: 'page-ic', text: p.isDaily ? '🗓️' : '📄' }), el('span', { class: 'page-name', text: label })]));
   }
 }
@@ -248,10 +181,30 @@ async function newPage() {
   } catch (e) { alert(e.message); }
 }
 
-async function doLogout() {
-  await api.logout();
-  state.user = null;
-  location.reload();
+/* ----------------------------- export / import ---------------------------- */
+
+function exportNotes() {
+  const blob = new Blob([api.exportData()], { type: 'application/json' });
+  const a = el('a', {
+    href: URL.createObjectURL(blob),
+    download: `notepad-export-${todayISO()}.json`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importNotes() {
+  const input = el('input', { type: 'file', accept: '.json,application/json' });
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    if (!confirm('Importing replaces all notes currently in this browser. Continue?')) return;
+    try {
+      api.importData(await file.text());
+      await loadWorkspace();
+    } catch (e) { alert(e.message); }
+  });
+  input.click();
 }
 
 /* --------------------------- navigation to pages -------------------------- */
@@ -295,20 +248,7 @@ async function renderDaily(main) {
   main.append(list);
 
   if (feed.length) {
-    const oldest = feed[feed.length - 1].dailyDate;
-    const btn = el('button', { class: 'load-more' }, 'Load earlier days');
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      const more = await api.dailyFeed(state.notebookId, { before: oldest, today: todayISO() });
-      if (!more.length) { btn.textContent = 'No earlier days'; return; }
-      for (const p of more) list.append(dailyCard(p));
-      const newOldest = more[more.length - 1].dailyDate;
-      btn.disabled = false;
-      btn.onclick = null;
-      renderMain.oldest = newOldest; // not used; simplest: rebuild handler
-      btn.replaceWith(makeLoadMore(list, newOldest));
-    });
-    main.append(btn);
+    main.append(makeLoadMore(list, feed[feed.length - 1].dailyDate));
   }
 }
 
@@ -526,7 +466,6 @@ function attachAutocomplete(ta) {
       box.append(it);
     });
     if (showCreate) {
-      const i = items.length;
       const it = el('div', { class: 'ac-item ac-create' + (items.length === 0 ? ' active' : '') },
         [el('span', { text: `Create “${q.query}”` })]);
       it.addEventListener('mousedown', (e) => { e.preventDefault(); choose(q.query); });
