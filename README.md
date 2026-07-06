@@ -1,8 +1,14 @@
 # 📓 Notepad
 
 A [Reflect](https://reflect.app)-style notetaking app: a **daily notes** timeline,
-**wiki-style backlinks** with `[[double brackets]]`, private per-user accounts, and
-fully **isolated notebooks** — notebooks never share backlinks.
+**wiki-style backlinks** with `[[double brackets]]`, and fully **isolated
+notebooks** — notebooks never share backlinks.
+
+It's a completely static web app: no server, no database, no account, no build
+step, nothing to install. Everything runs in your browser, and your notes are
+stored privately in your browser's local storage — they never leave your device.
+
+**Use it here → <https://peytonfrankecode.github.io/Notepad/>**
 
 ## Features
 
@@ -14,71 +20,51 @@ fully **isolated notebooks** — notebooks never share backlinks.
   **Linked references** — every note that links to it, with surrounding context.
 - **`[[` autocomplete** — start typing `[[` and pick from existing pages and any
   title you've referenced before, or create a new one inline.
-- **Accounts** — register / log in with email + password. Each user gets a
-  completely private workspace. Passwords are hashed (bcrypt); sessions use a
-  signed, httpOnly JWT cookie.
 - **Notebooks** — organize notes into separate notebooks. Each notebook has its
   own daily feed, its own pages, and **its own backlink graph** — a `[[Project]]`
   link in one notebook is entirely independent of the same name in another.
+- **Export / Import** — download all your notes as a JSON file from the sidebar,
+  and import it on another device (or keep it as a backup).
 
-## Tech stack
+## Your data
 
-- **Backend:** Node.js + Express, SQLite (`better-sqlite3`)
-- **Auth:** `bcryptjs` password hashing, `jsonwebtoken` in an httpOnly cookie
-- **Frontend:** dependency-free vanilla JavaScript (ES modules) + CSS — no build step
-- **Storage:** a single SQLite file under `data/` (auto-created)
+Notes live in `localStorage` under the site's origin, so they are private to
+your browser profile and persist between visits. Because there's no server:
 
-## Getting started
-
-```bash
-npm install
-npm start
-```
-
-Then open <http://localhost:3000>, click **Sign up**, and start writing.
-
-For auto-reload during development:
-
-```bash
-npm run dev
-```
-
-### Configuration
-
-| Variable     | Default             | Purpose                                                        |
-| ------------ | ------------------- | ------------------------------------------------------------- |
-| `PORT`       | `3000`              | HTTP port                                                      |
-| `JWT_SECRET` | random per start    | Set this in production so login sessions survive restarts.     |
-| `DB_PATH`    | `data/notepad.sqlite` | SQLite file location                                         |
+- Different browsers/devices each have their own notes — use **Export** /
+  **Import** in the sidebar to move them.
+- Clearing the site's browsing data deletes your notes — keep an export as a
+  backup if they matter.
 
 ## How it works
 
-### Data model
+Plain HTML + CSS + dependency-free vanilla JavaScript (ES modules) in
+[`docs/`](docs/), served by GitHub Pages:
 
 ```
-users ─┬─< notebooks ─┬─< pages   (daily notes are date-titled pages)
-       │              └─< links    (one row per [[link]] occurrence)
+docs/
+├── index.html      app shell
+├── css/styles.css
+└── js/
+    ├── app.js      UI: daily feed, pages, sidebar, [[ autocomplete
+    ├── api.js      data layer: notebooks/pages/links in localStorage
+    └── util.js     DOM + note-rendering helpers
 ```
 
 - A **page** is any note with a title. Daily notes are pages whose title is the
-  ISO date (`is_daily = 1`), displayed as "Monday, July 6, 2026".
-- When a page is saved, its `[[links]]` are parsed and rewritten into the `links`
-  table, **always scoped to that page's `notebook_id`**.
-- **Backlinks** for a page are every row in `links` (same notebook) whose target
+  ISO date, displayed as "Monday, July 6, 2026".
+- When a page is saved, its `[[links]]` are parsed and rewritten into a links
+  list, **always scoped to that page's notebook**.
+- **Backlinks** for a page are every link entry (same notebook) whose target
   title matches — which is why notebooks are perfectly isolated.
 
-### API overview
+## Running it yourself
 
-| Method   | Route                                   | Purpose                              |
-| -------- | --------------------------------------- | ------------------------------------ |
-| `POST`   | `/api/auth/register` · `/login` · `/logout` | Account + session                |
-| `GET`    | `/api/auth/me`                          | Current user                         |
-| `GET/POST/PATCH/DELETE` | `/api/notebooks[/:id]`   | Manage notebooks                     |
-| `GET`    | `/api/notebooks/:id/daily`              | Daily feed (auto-creates today)      |
-| `GET`    | `/api/notebooks/:id/page?title=…`       | Get / create a page by title         |
-| `GET`    | `/api/notebooks/:id/pages?q=…`          | List / search pages                  |
-| `GET`    | `/api/notebooks/:id/titles`             | Link-autocomplete suggestions        |
-| `PUT`    | `/api/notebooks/:id/pages/:pageId`      | Save a note (re-syncs backlinks)     |
+Host the `docs/` folder on any static host (GitHub Pages serves it from this
+repo), or serve it locally with any static file server, e.g.:
 
-Every notebook-scoped route verifies the notebook belongs to the authenticated
-user before doing anything.
+```bash
+python3 -m http.server -d docs
+```
+
+(ES modules don't load from `file://` URLs, so it needs to be served over HTTP.)
