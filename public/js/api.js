@@ -37,6 +37,7 @@ export const api = {
   listPages: (nbId, search) => request('GET', `/api/notebooks/${nbId}/pages${search ? qs({ q: search }) : ''}`),
   listTitles: (nbId) => request('GET', `/api/notebooks/${nbId}/titles`),
   dailyFeed: (nbId, opts = {}) => request('GET', `/api/notebooks/${nbId}/daily${qs(opts)}`),
+  getDailyPage: (nbId, date) => request('GET', `/api/notebooks/${nbId}/daily/${date}`),
   getPageByTitle: (nbId, title, create = true) =>
     request('GET', `/api/notebooks/${nbId}/page${qs({ title, create: create ? 1 : 0 })}`),
   getPage: (nbId, id) => request('GET', `/api/notebooks/${nbId}/pages/${id}`),

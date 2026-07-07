@@ -161,6 +161,17 @@ app.get('/api/notebooks/:nbId/daily', requireAuth, (req, res) => {
   res.json(rows.map(withBacklinks));
 });
 
+// Get (or create) the daily entry for a specific date — used to jump to any
+// day, including past days that aren't in the recent feed yet.
+app.get('/api/notebooks/:nbId/daily/:date', requireAuth, (req, res) => {
+  const nb = withNotebook(req, res); if (!nb) return;
+  const date = String(req.params.date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date' });
+  let page = db.prepare('SELECT * FROM pages WHERE notebook_id = ? AND is_daily = 1 AND daily_date = ?').get(nb.id, date);
+  if (!page) page = createPage(nb.id, { title: date, isDaily: true, dailyDate: date });
+  res.json(withBacklinks(page));
+});
+
 app.get('/api/notebooks/:nbId/page', requireAuth, (req, res) => {
   const nb = withNotebook(req, res); if (!nb) return;
   const title = String(req.query.title || '').trim();

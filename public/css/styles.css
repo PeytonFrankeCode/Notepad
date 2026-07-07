@@ -97,6 +97,10 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .back-btn { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 6px 12px; font-size: 13.5px; color: var(--text-dim); }
 .back-btn:hover { background: var(--surface-2); }
 .del-btn { margin-left: auto; border: none; background: none; color: var(--danger); font-size: 13px; }
+.jump-label { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
+.day-nav { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.date-jump { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; color-scheme: light dark; }
+.date-jump:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* ------------------------------ daily log --------------------------------- */
 .daily-log { max-width: 760px; position: relative; }
@@ -125,6 +129,9 @@ input, textarea, select { font-family: inherit; color: inherit; }
 /* --------------------------------- notes ---------------------------------- */
 .note { margin: 2px 0; }
 .note-view { cursor: text; font-size: 15.5px; line-height: 1.7; min-height: 26px; }
+.note-view.editing { outline: none; background: var(--surface-2); border-radius: 0 8px 8px 8px; padding: 10px 12px; box-shadow: 0 0 0 2px var(--accent-soft); }
+.note-view.editing:empty::before { content: attr(data-placeholder); color: var(--text-faint); }
+.note-view [contenteditable="false"].wikilink { user-select: none; }
 .note-view .ln { min-height: 1.7em; }
 .note-view .blank { height: 0.7em; }
 .note-view .placeholder { color: var(--text-faint); font-style: italic; }

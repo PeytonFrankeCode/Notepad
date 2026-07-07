@@ -1,98 +1,169 @@
-// An editable note: shows rendered markdown; on click becomes a textarea with
-// a formatting toolbar, keyboard shortcuts, smart lists, and [[ autocomplete.
+// A WYSIWYG note editor. The rendered note itself becomes editable in place
+// (contenteditable), so **bold**, bullets, headings and [[links]] show as
+// real formatting *while you type* — like a word processor. On save the DOM is
+// serialized back to the same markdown-ish text, so backlinks and storage are
+// unchanged.
 
 import { el, renderNoteHtml, debounce } from './util.js';
 
-function fireInput(ta) { ta.dispatchEvent(new Event('input')); }
-function autoresize(ta) { ta.style.height = 'auto'; ta.style.height = `${Math.max(ta.scrollHeight, 42)}px`; }
+/* ------------------------------ DOM <-> text ------------------------------ */
 
-function lineBounds(v, pos) {
-  const start = v.lastIndexOf('\n', pos - 1) + 1;
-  let end = v.indexOf('\n', pos);
-  if (end === -1) end = v.length;
-  return { start, end };
+function currentBlock(root, node) {
+  let n = node;
+  while (n && n.parentNode !== root) n = n.parentNode;
+  return n && n.nodeType === 1 ? n : null;
 }
 
-function wrapSelection(ta, before, after = before) {
-  const { selectionStart: s, selectionEnd: e, value: v } = ta;
-  const sel = v.slice(s, e) || 'text';
-  ta.value = v.slice(0, s) + before + sel + after + v.slice(e);
-  ta.setSelectionRange(s + before.length, s + before.length + sel.length);
-  fireInput(ta);
+function caretToStart(node) {
+  const sel = window.getSelection();
+  const r = document.createRange();
+  r.selectNodeContents(node);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
 }
 
-function toggleLinePrefix(ta, prefix) {
-  const pos = ta.selectionStart;
-  const v = ta.value;
-  const { start } = lineBounds(v, pos);
-  const line = v.slice(start);
-  if (line.startsWith(prefix)) {
-    ta.value = v.slice(0, start) + line.slice(prefix.length);
-    ta.setSelectionRange(Math.max(start, pos - prefix.length), Math.max(start, pos - prefix.length));
-  } else {
-    ta.value = v.slice(0, start) + prefix + v.slice(start);
-    ta.setSelectionRange(pos + prefix.length, pos + prefix.length);
+// Serialize one inline node tree to markdown.
+function inlineToText(node) {
+  let out = '';
+  for (const c of node.childNodes) {
+    if (c.nodeType === 3) { out += c.nodeValue; continue; }
+    if (c.nodeType !== 1) continue;
+    const tag = c.tagName;
+    if (c.classList && c.classList.contains('wikilink')) { out += `[[${c.dataset.link || c.textContent}]]`; continue; }
+    if (tag === 'BR') { out += '\n'; continue; }
+    if (tag === 'A') { out += c.getAttribute('href') || c.textContent; continue; }
+    if (tag === 'STRONG' || tag === 'B') { out += `**${inlineToText(c)}**`; continue; }
+    if (tag === 'EM' || tag === 'I') { out += `*${inlineToText(c)}*`; continue; }
+    if (tag === 'DEL' || tag === 'S' || tag === 'STRIKE') { out += `~~${inlineToText(c)}~~`; continue; }
+    if (tag === 'CODE') { out += `\`${inlineToText(c)}\``; continue; }
+    // span/other: recurse, and honor inline styles execCommand may emit
+    let inner = inlineToText(c);
+    const st = c.style;
+    if (st) {
+      if (st.fontWeight === 'bold' || Number(st.fontWeight) >= 600) inner = `**${inner}**`;
+      if (st.fontStyle === 'italic') inner = `*${inner}*`;
+      if ((st.textDecorationLine || st.textDecoration || '').includes('line-through')) inner = `~~${inner}~~`;
+    }
+    out += inner;
   }
-  fireInput(ta);
+  return out;
 }
 
-function indent(ta, remove) {
-  const pos = ta.selectionStart;
-  const v = ta.value;
-  const { start } = lineBounds(v, pos);
-  if (remove) {
-    const line = v.slice(start);
-    const rm = line.startsWith('  ') ? 2 : (/^[ \t]/.test(line) ? 1 : 0);
-    if (!rm) return;
-    ta.value = v.slice(0, start) + line.slice(rm);
-    ta.setSelectionRange(Math.max(start, pos - rm), Math.max(start, pos - rm));
-  } else {
-    ta.value = v.slice(0, start) + '  ' + v.slice(start);
-    ta.setSelectionRange(pos + 2, pos + 2);
+// Serialize the whole editable surface to markdown text.
+function serialize(root) {
+  const lines = [];
+  for (const node of root.childNodes) {
+    if (node.nodeType === 3) { if (node.nodeValue.trim()) lines.push(node.nodeValue); continue; }
+    if (node.nodeType !== 1) continue;
+    const elt = node;
+    if (elt.tagName === 'BR') { lines.push(''); continue; }
+    let prefix = '';
+    const cls = elt.className || '';
+    const hTag = /^H([1-6])$/.exec(elt.tagName);
+    const hCls = /\bh([1-6])\b/.exec(cls);
+    if (hTag) prefix = '#'.repeat(Number(hTag[1])) + ' ';
+    else if (cls.includes('h ') && hCls) prefix = '#'.repeat(Number(hCls[1])) + ' ';
+    else if (cls.includes('li')) {
+      const lvl = Number(elt.style.getPropertyValue('--lvl') || elt.dataset.lvl || 0);
+      prefix = '  '.repeat(lvl) + '- ';
+    }
+    let text = inlineToText(elt).replace(/ /g, ' ').replace(/\n+$/, '');
+    lines.push(prefix + text);
   }
-  fireInput(ta);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '');
 }
 
-// Enter inside a bullet: continue the list; on an empty bullet, end it.
-function handleListEnter(ta) {
-  const pos = ta.selectionStart;
-  if (pos !== ta.selectionEnd) return false;
-  const v = ta.value;
-  const { start, end } = lineBounds(v, pos);
-  const m = /^(\s*)([-*])\s+(.*)$/.exec(v.slice(start, end));
-  if (!m) return false;
-  if (!m[3].trim()) {
-    ta.value = v.slice(0, start) + v.slice(end);
-    ta.setSelectionRange(start, start);
-    fireInput(ta);
+/* ------------------------------ block editing ----------------------------- */
+
+function setBlockType(block, type, lvl = 0) {
+  block.removeAttribute('style');
+  if (type === 'li') { block.className = 'li'; block.style.setProperty('--lvl', String(lvl)); }
+  else if (type === 'h') block.className = 'h h2';
+  else block.className = 'ln';
+  if (!block.textContent && !block.querySelector('br')) block.innerHTML = '<br>';
+}
+
+function handleEnter(root) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return false;
+  const range = sel.getRangeAt(0);
+  const block = currentBlock(root, range.startContainer);
+  if (!block) return false;
+  const isBullet = block.classList.contains('li');
+  const empty = !block.textContent.replace(/​/g, '').trim();
+
+  if (isBullet && empty) { setBlockType(block, 'ln'); caretToStart(block); return true; }
+
+  const tail = range.cloneRange();
+  tail.setEndAfter(block.lastChild || block);
+  tail.setStart(range.startContainer, range.startOffset);
+  const frag = tail.extractContents();
+
+  const nb = document.createElement('div');
+  if (isBullet) { nb.className = 'li'; nb.style.setProperty('--lvl', block.style.getPropertyValue('--lvl') || '0'); }
+  else nb.className = 'ln';
+  nb.appendChild(frag);
+  if (!nb.textContent && !nb.querySelector('br')) nb.innerHTML = '<br>';
+  if (!block.textContent && !block.querySelector('br')) block.innerHTML = '<br>';
+  block.after(nb);
+  caretToStart(nb);
+  return true;
+}
+
+function handleTab(root, shift) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return false;
+  const block = currentBlock(root, sel.getRangeAt(0).startContainer);
+  if (!block) return false;
+  if (!block.classList.contains('li')) {
+    if (shift) return false;
+    setBlockType(block, 'li', 0);
     return true;
   }
-  const insert = `\n${m[1]}- `;
-  ta.value = v.slice(0, pos) + insert + v.slice(pos);
-  ta.setSelectionRange(pos + insert.length, pos + insert.length);
-  fireInput(ta);
+  let lvl = Number(block.style.getPropertyValue('--lvl') || 0);
+  lvl = Math.max(0, Math.min(6, lvl + (shift ? -1 : 1)));
+  block.style.setProperty('--lvl', String(lvl));
   return true;
+}
+
+function toggleBlock(root, type) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const block = currentBlock(root, sel.getRangeAt(0).startContainer);
+  if (!block) return;
+  const isType = type === 'li' ? block.classList.contains('li') : /\bh[1-6]\b/.test(block.className);
+  setBlockType(block, isType ? 'ln' : type);
+  caretToStart(block);
+}
+
+function wrapCode(root) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const code = document.createElement('code');
+  try { range.surroundContents(code); } catch { /* spans multiple nodes */ }
 }
 
 /* ------------------------------ autocomplete ------------------------------ */
 
-function makeAutocomplete(ta, getTitles) {
-  let box = null;
-  let items = [];
-  let active = 0;
+function makeAutocomplete(root, getTitles) {
+  let box = null; let items = []; let active = 0;
 
   function query() {
-    const pos = ta.selectionStart;
-    const before = ta.value.slice(0, pos);
-    const open = before.lastIndexOf('[[');
-    if (open === -1) return null;
-    const between = before.slice(open + 2);
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    if (node.nodeType !== 3) return null;
+    const before = node.nodeValue.slice(0, range.startOffset);
+    const idx = before.lastIndexOf('[[');
+    if (idx === -1) return null;
+    const between = before.slice(idx + 2);
     if (/[\[\]\n]/.test(between)) return null;
-    return { text: between.trim(), start: open + 2, end: pos };
+    return { text: between.trim(), node, idx, end: range.startOffset };
   }
-
   function close() { if (box) { box.remove(); box = null; } items = []; }
-
   function show(q) {
     const lower = q.text.toLowerCase();
     const titles = getTitles();
@@ -108,36 +179,35 @@ function makeAutocomplete(ta, getTitles) {
       box.append(it);
     });
     if (canCreate) {
-      const it = el('div', { class: `ac-item ac-create${items.length === 0 ? ' active' : ''}` },
-        [el('span', { text: `Create “${q.text}”` })]);
+      const it = el('div', { class: `ac-item ac-create${items.length === 0 ? ' active' : ''}` }, [el('span', { text: `Create “${q.text}”` })]);
       it.addEventListener('mousedown', (e) => { e.preventDefault(); choose(q.text); });
       box.append(it);
       items.push(q.text);
     }
-    const r = ta.getBoundingClientRect();
-    box.style.left = `${r.left}px`;
-    box.style.top = `${Math.min(r.bottom + 2, window.innerHeight - 220)}px`;
-    box.style.width = `${Math.min(Math.max(r.width, 200), 340)}px`;
+    const rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
+    box.style.left = `${rect.left}px`;
+    box.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 220)}px`;
+    box.style.width = '260px';
   }
-
   function choose(title) {
     const q = query();
     if (!q) { close(); return; }
-    const before = ta.value.slice(0, q.start);
-    const after = ta.value.slice(q.end);
-    const hasClose = after.startsWith(']]');
-    ta.value = before + title + (hasClose ? '' : ']]') + after;
-    const caret = before.length + title.length + 2;
-    ta.setSelectionRange(caret, caret);
+    const raw = q.node.nodeValue;
+    q.node.nodeValue = raw.slice(0, q.idx); // strip the "[[query"
+    const chip = makeChip(title);
+    const after = document.createTextNode(' ' + raw.slice(q.end));
+    const parent = q.node.parentNode;
+    parent.insertBefore(after, q.node.nextSibling);
+    parent.insertBefore(chip, after);
+    const sel = window.getSelection();
+    const r = document.createRange();
+    r.setStart(after, 1);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
     close();
-    ta.focus();
-    fireInput(ta);
   }
-
-  function paint() {
-    if (box) [...box.children].forEach((c, i) => c.classList.toggle('active', i === active));
-  }
-
+  function paint() { if (box) [...box.children].forEach((c, i) => c.classList.toggle('active', i === active)); }
   return {
     refresh() { const q = query(); q ? show(q) : close(); },
     isOpen: () => !!box,
@@ -153,27 +223,22 @@ function makeAutocomplete(ta, getTitles) {
   };
 }
 
+function makeChip(title) {
+  const a = el('a', { class: 'wikilink', href: '#', 'data-link': title, contenteditable: 'false' });
+  a.textContent = title;
+  return a;
+}
+
 /* -------------------------------- toolbar --------------------------------- */
 
 const TOOLS = [
-  { label: 'B', title: 'Bold  (Ctrl/Cmd+B)', cls: 'tb-b', run: (ta) => wrapSelection(ta, '**') },
-  { label: 'I', title: 'Italic  (Ctrl/Cmd+I)', cls: 'tb-i', run: (ta) => wrapSelection(ta, '*') },
-  { label: 'S', title: 'Strikethrough', cls: 'tb-s', run: (ta) => wrapSelection(ta, '~~') },
-  { label: '‹›', title: 'Inline code', cls: 'tb-code', run: (ta) => wrapSelection(ta, '`') },
-  { label: 'H', title: 'Heading', cls: 'tb-h', run: (ta) => toggleLinePrefix(ta, '# ') },
-  { label: '•', title: 'Bullet list', cls: 'tb-ul', run: (ta) => toggleLinePrefix(ta, '- ') },
-  { label: '[[]]', title: 'Link to a page', cls: 'tb-link', run: (ta, ac) => { wrapSelection(ta, '[[', ']]'); ac.refresh(); } },
+  { label: 'B', cls: 'tb-b', title: 'Bold  (Ctrl/Cmd+B)', run: () => document.execCommand('bold') },
+  { label: 'I', cls: 'tb-i', title: 'Italic  (Ctrl/Cmd+I)', run: () => document.execCommand('italic') },
+  { label: 'S', cls: 'tb-s', title: 'Strikethrough', run: () => document.execCommand('strikeThrough') },
+  { label: '‹›', cls: 'tb-code', title: 'Inline code', run: (root) => wrapCode(root) },
+  { label: 'H', cls: 'tb-h', title: 'Heading', run: (root) => toggleBlock(root, 'h') },
+  { label: '•', cls: 'tb-ul', title: 'Bullet list', run: (root) => toggleBlock(root, 'li') },
 ];
-
-function buildToolbar(ta, ac) {
-  const bar = el('div', { class: 'toolbar' });
-  for (const t of TOOLS) {
-    const btn = el('button', { class: `tb-btn ${t.cls}`, type: 'button', title: t.title, text: t.label });
-    btn.addEventListener('mousedown', (e) => { e.preventDefault(); ta.focus(); t.run(ta, ac); });
-    bar.append(btn);
-  }
-  return bar;
-}
 
 /* ------------------------------ editable note ----------------------------- */
 
@@ -183,59 +248,86 @@ export function editableNote(page, ctx) {
   const view = el('div', { class: 'note-view', html: renderNoteHtml(page.content, opts) });
   wrap.append(view);
   let editing = false;
+  let toolbar = null;
+  let ac = null;
 
-  view.addEventListener('click', (e) => {
+  view.addEventListener('mousedown', (e) => {
+    if (editing) return;
     const wl = e.target.closest('a.wikilink');
     if (wl) { e.preventDefault(); ctx.openLink(wl.dataset.link); return; }
     if (e.target.closest('a.exturl')) return;
-    enterEdit();
   });
+  view.addEventListener('click', () => { if (!editing) enterEdit(); });
 
   function enterEdit() {
-    if (editing) return;
     editing = true;
+    if (!page.content.trim()) view.innerHTML = '<div class="ln"><br></div>';
+    view.querySelectorAll('a.wikilink').forEach((a) => a.setAttribute('contenteditable', 'false'));
+    view.setAttribute('contenteditable', 'true');
+    view.classList.add('editing');
+    try { document.execCommand('styleWithCSS', false, false); } catch { /* ok */ }
 
-    const ta = el('textarea', { class: 'note-edit', spellcheck: 'true' });
-    ta.value = page.content;
-    const ac = makeAutocomplete(ta, ctx.getTitles);
-    const root = el('div', { class: 'note-editing' }, [buildToolbar(ta, ac), ta]);
-    wrap.replaceChild(root, view);
-    autoresize(ta);
-    ta.focus();
-    ta.setSelectionRange(ta.value.length, ta.value.length);
+    toolbar = buildToolbar();
+    wrap.insertBefore(toolbar, view);
+    view.focus();
 
+    ac = makeAutocomplete(view, ctx.getTitles);
     const autosave = debounce(async () => {
-      try { const u = await ctx.save(ta.value); Object.assign(page, u); ctx.onSaved?.(page); } catch { /* retry on blur */ }
-    }, 700);
+      try { const u = await ctx.save(serialize(view)); Object.assign(page, u); ctx.onSaved?.(page); } catch { /* retry on blur */ }
+    }, 800);
 
-    ta.addEventListener('input', () => { autoresize(ta); ac.refresh(); autosave(); });
-    ta.addEventListener('click', () => ac.refresh());
-    ta.addEventListener('keydown', (e) => {
+    view.addEventListener('input', onInput);
+    view.addEventListener('keydown', onKeydown);
+    view.addEventListener('blur', onBlur);
+
+    function onInput() { ac.refresh(); autosave(); }
+    function onKeydown(e) {
       if (ac.handleKey(e)) return;
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); wrapSelection(ta, '**'); return; }
-      if (mod && (e.key === 'i' || e.key === 'I')) { e.preventDefault(); wrapSelection(ta, '*'); return; }
-      if (mod && e.key === 'Enter') { e.preventDefault(); ta.blur(); return; }
-      if (e.key === 'Escape') { e.preventDefault(); ta.blur(); return; }
-      if (e.key === 'Tab') { e.preventDefault(); indent(ta, e.shiftKey); return; }
-      if (e.key === 'Enter' && !e.shiftKey && handleListEnter(ta)) { e.preventDefault(); }
-    });
+      if (mod && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); document.execCommand('bold'); return; }
+      if (mod && (e.key === 'i' || e.key === 'I')) { e.preventDefault(); document.execCommand('italic'); return; }
+      if (mod && e.key === 'Enter') { e.preventDefault(); view.blur(); return; }
+      if (e.key === 'Escape') { e.preventDefault(); view.blur(); return; }
+      if (e.key === 'Tab') { if (handleTab(view, e.shiftKey)) e.preventDefault(); return; }
+      if (e.key === 'Enter' && !e.shiftKey) { if (handleEnter(view)) e.preventDefault(); }
+    }
 
     let committed = false;
-    ta.addEventListener('blur', () => setTimeout(commit, 120));
-    async function commit() {
+    function onBlur() { setTimeout(commit, 150); }
+    function commit() {
       if (committed || ac.isOpen()) return;
       committed = true;
       editing = false;
-      const content = ta.value;
-      try { const u = await ctx.save(content); Object.assign(page, u); }
-      catch { page.content = content; }
-      view.innerHTML = renderNoteHtml(page.content, opts);
-      if (root.parentNode === wrap) wrap.replaceChild(view, root);
-      ctx.onSaved?.(page);
+      view.removeEventListener('input', onInput);
+      view.removeEventListener('keydown', onKeydown);
+      view.removeEventListener('blur', onBlur);
+      const content = serialize(view);
+      ac.close(); ac = null;
+      if (toolbar) { toolbar.remove(); toolbar = null; }
+      view.removeAttribute('contenteditable');
+      view.classList.remove('editing');
+      // Re-render immediately from the serialized text (no flash / no race),
+      // then persist in the background and refresh backlinks when it lands.
+      page.content = content;
+      view.innerHTML = renderNoteHtml(content, opts);
+      ctx.save(content).then((u) => { Object.assign(page, u); ctx.onSaved?.(page); }).catch(() => {});
     }
   }
 
-  if (ctx.autofocus) enterEdit();
+  function buildToolbar() {
+    const bar = el('div', { class: 'toolbar' });
+    for (const t of TOOLS) {
+      const btn = el('button', { class: `tb-btn ${t.cls}`, type: 'button', title: t.title, text: t.label });
+      btn.addEventListener('mousedown', (e) => { e.preventDefault(); view.focus(); t.run(view); onToolbarChange(); });
+      bar.append(btn);
+    }
+    return bar;
+  }
+  function onToolbarChange() {
+    if (ac) ac.refresh();
+    view.dispatchEvent(new Event('input'));
+  }
+
+  if (ctx.autofocus) queueMicrotask(enterEdit);
   return { wrap, edit: enterEdit };
 }

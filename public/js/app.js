@@ -105,7 +105,23 @@ function renderMain() {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="loading">Loading…</div>';
   if (state.view === 'daily') renderDaily(main);
+  else if (state.view === 'day') renderDay(main);
   else renderPage(main);
+}
+
+// Shift a YYYY-MM-DD string by n days.
+function shiftDate(isoStr, n) {
+  const [y, m, d] = isoStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+function openDay(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  state.dayDate = date;
+  state.view = 'day';
+  renderApp();
 }
 
 /* -------------------------------- sidebar --------------------------------- */
@@ -255,7 +271,12 @@ async function renderDaily(main) {
   catch (e) { main.innerHTML = `<div class="error">${e.message}</div>`; return; }
 
   main.innerHTML = '';
-  main.append(el('div', { class: 'view-head' }, [el('h1', { text: 'Daily Notes' })]));
+  const jump = el('input', { class: 'date-jump', type: 'date', value: todayISO(), title: 'Jump to a date' });
+  jump.addEventListener('change', () => jump.value && openDay(jump.value));
+  main.append(el('div', { class: 'view-head' }, [
+    el('h1', { text: 'Daily Notes' }),
+    el('label', { class: 'jump-label' }, [el('span', { text: 'Jump to' }), jump]),
+  ]));
   const log = el('div', { class: 'daily-log' });
   main.append(log);
 
@@ -300,6 +321,49 @@ function dayBlock(page, isFirst) {
 
   block.append(el('div', { class: 'day-body' }, [note.wrap, blWrap]));
   return block;
+}
+
+// Focused view of a single day (used when jumping to a specific date).
+async function renderDay(main) {
+  const date = state.dayDate;
+  let page;
+  try { page = await api.getDailyPage(state.notebookId, date); }
+  catch (e) { main.innerHTML = `<div class="error">${e.message}</div>`; return; }
+
+  const f = formatDate(date);
+  main.innerHTML = '';
+
+  const jump = el('input', { class: 'date-jump', type: 'date', value: date });
+  jump.addEventListener('change', () => jump.value && openDay(jump.value));
+  main.append(el('div', { class: 'view-head' }, [
+    el('button', { class: 'back-btn', onClick: () => navigate('daily') }, '← Daily Notes'),
+    el('div', { class: 'day-nav' }, [
+      el('button', { class: 'icon-btn', title: 'Previous day', onClick: () => openDay(shiftDate(date, -1)) }, '‹'),
+      jump,
+      el('button', { class: 'icon-btn', title: 'Next day', onClick: () => openDay(shiftDate(date, 1)) }, '›'),
+    ]),
+  ]));
+
+  const blWrap = el('div', { class: 'backlinks' });
+  const note = editableNote(page, noteCtx(page, {
+    placeholder: `Add notes for ${f.full}…`,
+    autofocus: !page.content,
+    onSaved: () => { renderBacklinks(blWrap, page); refreshTitles(); },
+  }));
+  renderBacklinks(blWrap, page);
+
+  main.append(el('div', { class: 'page-body' }, [
+    el('div', { class: `day-block single${f.isToday ? ' today' : ''}` }, [
+      el('div', { class: 'day-divider' }, [
+        el('span', { class: 'day-dot' }),
+        el('span', { class: 'day-label' }, [
+          f.isToday ? el('span', { class: 'day-today', text: 'Today' }) : null,
+          el('span', { class: 'day-full', text: f.full }),
+        ]),
+      ]),
+      el('div', { class: 'day-body' }, [note.wrap, blWrap]),
+    ]),
+  ]));
 }
 
 /* -------------------------------- page view ------------------------------- */
