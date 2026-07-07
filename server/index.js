@@ -2,6 +2,7 @@
 // frontend and API as the Cloudflare build. Intended to run on an internal
 // host reachable only over your VPN.
 
+import './env.js'; // load .env before db/auth read process.env
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { dirname, join } from 'node:path';
