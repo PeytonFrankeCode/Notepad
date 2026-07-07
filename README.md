@@ -4,11 +4,12 @@ A [Reflect](https://reflect.app)-style notetaking app: a **daily notes** timelin
 **wiki-style backlinks** with `[[double brackets]]`, and fully **isolated
 notebooks** — notebooks never share backlinks.
 
-It's a completely static web app: no server, no database, no account, no build
-step, nothing to install. Everything runs in your browser, and your notes are
-stored privately in your browser's local storage — they never leave your device.
+It ships in two flavors from this one repo:
 
-**Use it here → <https://peytonfrankecode.github.io/Notepad/>**
+| | Where it runs | Accounts | Where notes live |
+|---|---|---|---|
+| **Cloud app** (`public/` + `functions/`) | [Cloudflare Pages](#deploying-to-cloudflare-pages), on Cloudflare's global network | Email + password | Cloudflare D1 (SQLite) — synced across your devices |
+| **In-browser app** (`docs/`) | GitHub Pages: <https://peytonfrankecode.github.io/Notepad/> | None needed | Your browser's localStorage — private to your device |
 
 ## Features
 
@@ -23,48 +24,63 @@ stored privately in your browser's local storage — they never leave your devic
 - **Notebooks** — organize notes into separate notebooks. Each notebook has its
   own daily feed, its own pages, and **its own backlink graph** — a `[[Project]]`
   link in one notebook is entirely independent of the same name in another.
-- **Export / Import** — download all your notes as a JSON file from the sidebar,
-  and import it on another device (or keep it as a backup).
+- **Accounts** (cloud app) — register / log in with email + password. Each user
+  gets a completely private workspace. Passwords are hashed (PBKDF2); sessions
+  use a signed, httpOnly JWT cookie.
 
-## Your data
+## Deploying to Cloudflare Pages
 
-Notes live in `localStorage` under the site's origin, so they are private to
-your browser profile and persist between visits. Because there's no server:
+No build tools needed — Cloudflare deploys straight from GitHub and redeploys
+on every push. One-time setup in the [Cloudflare dashboard](https://dash.cloudflare.com):
 
-- Different browsers/devices each have their own notes — use **Export** /
-  **Import** in the sidebar to move them.
-- Clearing the site's browsing data deletes your notes — keep an export as a
-  backup if they matter.
+1. **Connect the repo** — *Workers & Pages → Create → Pages → Connect to Git*,
+   authorize GitHub, and pick this repository.
+2. **Build settings** — Framework preset: **None** · Build command: *(leave
+   empty)* · Build output directory: **`public`**. Save and deploy.
+3. **Create the database** — *Storage & Databases → D1 → Create database*,
+   name it anything (e.g. `notepad-db`).
+4. **Bind it** — in the Pages project: *Settings → Bindings → Add → D1
+   database* · Variable name: **`DB`** · select your database.
+5. **Redeploy** — *Deployments → ⋯ on the latest → Retry deployment* so the
+   binding takes effect.
+
+That's it. The API creates its own tables on first request, and generates and
+stores its own session-signing secret in D1 (set a `JWT_SECRET` environment
+variable in the project settings if you'd rather control it yourself).
+Your app is live at `https://<project>.pages.dev` on Cloudflare's global edge.
 
 ## How it works
 
-Plain HTML + CSS + dependency-free vanilla JavaScript (ES modules) in
-[`docs/`](docs/), served by GitHub Pages:
-
 ```
-docs/
-├── index.html      app shell
+public/                     the cloud app frontend (vanilla JS, no build step)
+├── index.html
 ├── css/styles.css
 └── js/
-    ├── app.js      UI: daily feed, pages, sidebar, [[ autocomplete
-    ├── api.js      data layer: notebooks/pages/links in localStorage
-    └── util.js     DOM + note-rendering helpers
+    ├── app.js              UI: auth, daily feed, pages, [[ autocomplete
+    ├── api.js              fetch wrapper for /api/*
+    └── util.js             DOM + note-rendering helpers
+functions/
+└── api/[[route]].js        the whole API as one Cloudflare Pages Function
+                            (D1/SQLite storage, WebCrypto PBKDF2 + JWT auth)
+docs/                       the standalone in-browser version (GitHub Pages);
+                            same UI, with a localStorage data layer instead
 ```
 
 - A **page** is any note with a title. Daily notes are pages whose title is the
   ISO date, displayed as "Monday, July 6, 2026".
-- When a page is saved, its `[[links]]` are parsed and rewritten into a links
-  list, **always scoped to that page's notebook**.
-- **Backlinks** for a page are every link entry (same notebook) whose target
+- When a page is saved, its `[[links]]` are parsed and rewritten into the
+  `links` table, **always scoped to that page's notebook**.
+- **Backlinks** for a page are every link row (same notebook) whose target
   title matches — which is why notebooks are perfectly isolated.
+- Every notebook-scoped route verifies the notebook belongs to the
+  authenticated user before doing anything.
 
-## Running it yourself
-
-Host the `docs/` folder on any static host (GitHub Pages serves it from this
-repo), or serve it locally with any static file server, e.g.:
+## Local development
 
 ```bash
-python3 -m http.server -d docs
+npx wrangler pages dev public --d1=DB
 ```
 
-(ES modules don't load from `file://` URLs, so it needs to be served over HTTP.)
+This serves the cloud app at <http://localhost:8788> with a local D1 database
+(no Cloudflare account needed). The `docs/` version needs any static file
+server, e.g. `python3 -m http.server -d docs`.
