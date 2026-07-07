@@ -1,26 +1,18 @@
 {
   "name": "notepad",
   "version": "2.0.0",
-  "description": "A Reflect-style notetaking app on Cloudflare Pages + Functions + D1: daily log, backlinks, rich text, accounts, and isolated notebooks.",
+  "description": "A self-hosted Reflect-style notetaking app: daily log, backlinks, rich text, accounts, and isolated notebooks. Node + Express + SQLite.",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
-    "serve:dev": "node --watch server/index.js",
-    "cf:db:local": "wrangler d1 execute notepad-db --local --file=./schema.sql",
-    "cf:db:remote": "wrangler d1 execute notepad-db --remote --file=./schema.sql",
-    "cf:dev": "wrangler pages dev",
-    "cf:deploy": "wrangler pages deploy"
+    "serve:dev": "node --watch server/index.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.8.1",
     "cookie-parser": "^1.4.7",
     "express": "^4.21.2",
-    "hono": "^4.6.14",
     "jsonwebtoken": "^9.0.2"
-  },
-  "devDependencies": {
-    "wrangler": "^3.90.0"
   }
 }
