@@ -212,6 +212,7 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .task-box[data-checked="1"]::after { content: '✓'; position: absolute; inset: 0; color: #fff; font-size: 11px; line-height: 14px; text-align: center; }
 .note-view .li.task { display: flex; align-items: flex-start; }
 .note-view .li.task::before { display: none; }
+.note-view .li.task .task-box { margin-top: calc((1.7em - 16px) / 2); }
 .note-view .li.task .task-text { flex: 1; }
 .note-view .li.task.done .task-text { color: var(--text-faint); text-decoration: line-through; }
 

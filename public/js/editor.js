@@ -340,7 +340,7 @@ export function editableNote(page, ctx) {
       if (ac.handleKey(e)) return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
-      if (mod && e.shiftKey && (k === 's')) { e.preventDefault(); document.execCommand('strikeThrough'); afterFormat(); return; }
+      if (mod && e.shiftKey && (k === 'x')) { e.preventDefault(); document.execCommand('strikeThrough'); afterFormat(); return; }
       if (mod && e.shiftKey && (k === 'h')) { e.preventDefault(); toggleBlock(view, 'h'); afterFormat(); return; }
       if (mod && e.shiftKey && e.code === 'Digit8') { e.preventDefault(); toggleBlock(view, 'li'); afterFormat(); return; }
       if (mod && e.shiftKey && e.code === 'Digit9') { e.preventDefault(); toggleTaskLine(view); afterFormat(); return; }

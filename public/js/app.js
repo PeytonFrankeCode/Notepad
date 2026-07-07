@@ -260,7 +260,7 @@ const SHORTCUTS = [
   { section: 'Editing a note' },
   { keys: ['⌘/Ctrl', 'B'], desc: 'Bold' },
   { keys: ['⌘/Ctrl', 'I'], desc: 'Italic' },
-  { keys: ['⌘/Ctrl', '⇧', 'S'], desc: 'Strikethrough' },
+  { keys: ['⌘/Ctrl', '⇧', 'X'], desc: 'Strikethrough' },
   { keys: ['⌘/Ctrl', 'E'], desc: 'Inline code' },
   { keys: ['⌘/Ctrl', '⇧', '8'], desc: 'Toggle bullet' },
   { keys: ['⌘/Ctrl', '⇧', '9'], desc: 'Toggle checkbox task' },
