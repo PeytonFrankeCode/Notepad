@@ -1,0 +1,41 @@
+# systemd unit for running Notepad directly with Node (no Docker).
+# 1. Put the repo at /opt/notepad and run: npm ci --omit=dev
+# 2. Edit the paths/user/IP below, then:
+#      sudo cp deploy/notepad.service /etc/systemd/system/
+#      sudo systemctl daemon-reload && sudo systemctl enable --now notepad
+# 3. Check:  systemctl status notepad   /   journalctl -u notepad -f
+
+[Unit]
+Description=Notepad (self-hosted notes)
+After=network.target
+
+[Service]
+Type=simple
+User=notepad
+WorkingDirectory=/opt/notepad
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=3
+
+# --- configuration ---
+Environment=NODE_ENV=production
+Environment=DB_PATH=/var/lib/notepad/notepad.sqlite
+# Bind to your VPN/LAN interface so it isn't publicly reachable (or 127.0.0.1
+# if a reverse proxy on this host handles TLS).
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=TRUST_PROXY=loopback
+# REQUIRED: generate with `openssl rand -hex 32` and keep it secret.
+Environment=JWT_SECRET=REPLACE_WITH_A_LONG_RANDOM_STRING
+# Set true only if TLS terminates in this process (usually false).
+Environment=COOKIE_SECURE=false
+
+# --- hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/notepad
+
+[Install]
+WantedBy=multi-user.target

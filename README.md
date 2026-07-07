@@ -5,103 +5,134 @@ log**, wiki-style **`[[backlinks]]`** with nested-bullet context, **rich text**,
 private **accounts**, and fully **isolated notebooks** — notebooks never share
 backlinks.
 
-Runs on **Cloudflare Pages + Functions + D1** — a static frontend, a real API,
-and a real (SQLite) database, all on one platform, with automatic preview
-deployments for review.
+It ships with **two deployment targets from one codebase**:
+
+- **Self-hosted** (`server/`) — Node + Express + SQLite. Runs on your own server,
+  keeps all data on-prem, and is ideal for **VPN-only / internal** access.
+- **Cloudflare** (`functions/`) — Pages + Functions + D1, for cloud hosting with
+  automatic preview deployments.
+
+The frontend in `public/` is identical for both.
 
 ## Features
 
-- **Continuous daily log** — the Daily Notes view is one running timeline. Today
-  is created automatically and opens ready to type — you never title a page for a
+- **Continuous daily log** — Daily Notes is one running timeline. Today is
+  created automatically and opens ready to type — you never title a page for a
   day. Earlier days load on demand.
 - **Rich text** — `**bold**`, `*italic*`, `~~strike~~`, `` `code` ``, `#` headings,
-  and nested bullets. A formatting toolbar plus shortcuts (Ctrl/Cmd+B / +I),
-  smart list continuation (Enter), and Tab / Shift+Tab to indent/outdent.
-- **`[[wiki links]]` + backlinks** — type `[[Page]]` (with autocomplete) to link.
-  Open a page to see its **Linked references** — and any bullet points **nested
-  under** a link are pulled in with it.
-- **Accounts** — email + password sign-up/login. Passwords are hashed with
-  PBKDF2 (Web Crypto); sessions are a signed JWT in an httpOnly cookie. Each
-  user's space is completely private and syncs across devices.
+  nested bullets. Toolbar + shortcuts (Ctrl/Cmd+B / +I), smart list continuation
+  (Enter), Tab / Shift+Tab to indent.
+- **`[[wiki links]]` + backlinks** — type `[[Page]]` (with autocomplete). Open a
+  page to see its **Linked references**, and any bullets **nested under** a link
+  are pulled in with it.
+- **Accounts** — email + password; each user's space is private and syncs across
+  their devices. Passwords are hashed (bcrypt on Node / PBKDF2 on Cloudflare);
+  sessions are a signed JWT in an httpOnly cookie.
 - **Notebooks** — separate notebooks per user, each with its **own daily log,
-  pages, and backlink graph**. A `[[Project]]` link in one notebook is entirely
-  independent of the same name in another.
+  pages, and backlink graph**.
 
-## Architecture
+---
 
+## Deploy on your own server (VPN-only)
+
+The app itself does not run the VPN — access control happens at the **network
+layer**. You bind the app to an internal interface and let your firewall/VPN
+decide who can reach it; the built-in login is then a second layer.
+
+### Quick start (bare Node)
+
+```bash
+npm ci --omit=dev
+export JWT_SECRET="$(openssl rand -hex 32)"   # keep this stable & secret
+export HOST=10.8.0.5     # your VPN/LAN address (or 127.0.0.1 behind a proxy)
+export PORT=3000
+npm start                # -> http://10.8.0.5:3000
 ```
-public/                 static frontend (Cloudflare Pages serves this)
-├── index.html
-├── css/styles.css
-└── js/{app,api,editor,util}.js
-functions/
-└── api/[[path]].js     the API (Hono) on the Workers runtime, backed by D1
-schema.sql              D1 (SQLite) schema
-wrangler.toml           Pages + D1 configuration
+
+Sign up (a starter "My Notes" notebook is created) and start writing. Data is a
+single SQLite file at `DB_PATH` (default `./data/notepad.sqlite`) — back it up.
+
+### Run as a service (systemd)
+
+See [`deploy/notepad.service`](deploy/notepad.service) — copy it to
+`/etc/systemd/system/`, set `JWT_SECRET`/`HOST`, then
+`systemctl enable --now notepad`.
+
+### Run with Docker
+
+```bash
+cp .env.example .env      # set JWT_SECRET (openssl rand -hex 32)
+docker compose up -d      # binds to 127.0.0.1:3000 by default
 ```
 
-- A **page** is any note with a title. Daily entries are pages whose title is the
-  ISO date (`is_daily = 1`), shown as "Monday, July 7, 2026".
-- On save, a page's `[[links]]` are parsed into a `links` table **scoped to its
-  notebook**, which is what makes notebooks perfectly isolated.
-- A backlink's context is the line that mentions the link **plus every line
-  nested beneath it**, so bulleted detail travels with the reference.
+Edit the `ports:` line in `docker-compose.yml` to bind your VPN address (e.g.
+`10.8.0.5:3000:3000`).
 
-## Deploying to Cloudflare
+### Making it VPN-only + adding TLS
 
-You provide three things: your **D1 database id**, a **`JWT_SECRET`**, and a
-**Pages project** (name/domain). Pick either path below.
+1. **Bind to the internal interface** — set `HOST` (or the compose `ports:`
+   mapping) to your VPN/LAN IP, or to `127.0.0.1` if a reverse proxy on the same
+   host fronts it. Don't bind `0.0.0.0` on a public interface.
+2. **Firewall** — allow the app's port only from your VPN subnet.
+3. **TLS (recommended, even internally)** — terminate HTTPS with nginx/Caddy in
+   front (see [`deploy/nginx.conf.example`](deploy/nginx.conf.example)). The app
+   reads `X-Forwarded-Proto` (with `TRUST_PROXY` set) and marks the session
+   cookie `Secure` automatically. Over plain HTTP on an internal network the
+   cookie is non-Secure so login still works.
 
-### One required edit
+### Server configuration
 
-Create the database and paste its id into `wrangler.toml`:
+| Variable        | Default                 | Purpose                                                        |
+| --------------- | ----------------------- | -------------------------------------------------------------- |
+| `JWT_SECRET`    | random per start        | **Set this** so sessions survive restarts. Keep it secret.     |
+| `HOST`          | `0.0.0.0`               | Interface to bind — set to your VPN/LAN IP or `127.0.0.1`.     |
+| `PORT`          | `3000`                  | Port to listen on.                                             |
+| `DB_PATH`       | `./data/notepad.sqlite` | SQLite database file location.                                 |
+| `COOKIE_SECURE` | auto                    | Force `Secure` cookies. Usually left to auto-detect via proxy. |
+| `TRUST_PROXY`   | `loopback`              | Express trust-proxy value when behind a reverse proxy.         |
+
+---
+
+## Deploy on Cloudflare
+
+Provide your **D1 database id**, a **`JWT_SECRET`**, and a **Pages project**.
 
 ```bash
 npm install
 npx wrangler login
-npx wrangler d1 create notepad-db      # copy the printed database_id
+npx wrangler d1 create notepad-db      # paste the id into wrangler.toml
+npm run cf:db:remote                   # applies schema.sql to your D1
 ```
 
-Put that id in `wrangler.toml` → `[[d1_databases]] database_id = "…"`, then
-create the tables:
+Then either connect the repo in the Cloudflare dashboard (**Pages → Connect to
+Git**, build output dir `public`, add a `DB` D1 binding and a `JWT_SECRET` env
+var) for automatic preview deployments, or deploy from the CLI:
 
 ```bash
-npm run db:remote                      # applies schema.sql to your D1
+npx wrangler pages secret put JWT_SECRET
+npm run cf:deploy
 ```
 
-### Path A — Dashboard (recommended; auto preview deployments)
+Local Cloudflare dev: `npm run cf:db:local && echo 'JWT_SECRET=dev' > .dev.vars && npm run cf:dev`.
 
-1. **Workers & Pages → Create → Pages → Connect to Git**, pick this repo/branch.
-2. Build settings: **Framework preset: None**, **Build output directory: `public`**
-   (leave the build command empty — Functions in `/functions` are detected
-   automatically).
-3. **Settings → Functions → D1 bindings**: add variable **`DB`** → `notepad-db`.
-4. **Settings → Environment variables**: add **`JWT_SECRET`** = a long random
-   string (add it to *Production* **and** *Preview*).
-5. Redeploy. Every push now gets its own preview URL for review.
+---
 
-### Path B — CLI (Wrangler)
+## Architecture
 
-```bash
-npx wrangler pages secret put JWT_SECRET   # paste a long random value
-npm run deploy                             # wrangler pages deploy
+```
+public/                 shared static frontend
+├── js/app.js           UI: auth, daily log, pages, sidebar
+├── js/editor.js        rich-text editor: toolbar, shortcuts, lists, [[ autocomplete
+├── js/util.js          note renderer (markdown-lite + [[links]] + bullets)
+└── js/api.js           fetch client (same-origin /api)
+
+server/                 self-hosted target — Express + better-sqlite3
+functions/api/[[path]].js   Cloudflare target — Hono + D1
+schema.sql              D1 schema  (Node build creates its tables on boot)
 ```
 
-## Local development
-
-```bash
-npm install
-npm run db:local        # create + migrate a local D1
-echo 'JWT_SECRET=local-dev-secret' > .dev.vars
-npm run dev             # wrangler pages dev  → http://localhost:8788
-```
-
-Sign up (a starter "My Notes" notebook is created for you) and start writing.
-
-### Configuration
-
-| Setting      | Where                         | Purpose                                    |
-| ------------ | ----------------------------- | ------------------------------------------ |
-| `DB`         | D1 binding (wrangler / dash)  | The SQLite database                        |
-| `JWT_SECRET` | secret / env var              | Signs session tokens — keep it private     |
-| `database_id`| `wrangler.toml`               | Which D1 database to use                    |
+- A **page** is any note with a title; daily entries are date-titled pages.
+- On save, a page's `[[links]]` are parsed into a `links` table **scoped to its
+  notebook** — which is what makes notebooks perfectly isolated.
+- A backlink's context is the line mentioning the link **plus every line nested
+  beneath it**, so bulleted detail travels with the reference.

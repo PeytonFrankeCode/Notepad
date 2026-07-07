@@ -1,0 +1,12 @@
+node_modules
+.git
+.wrangler
+.dev.vars
+.dev.vars.*
+data
+docs
+functions
+wrangler.toml
+schema.sql
+*.log
+_*.mjs

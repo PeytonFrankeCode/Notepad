@@ -1,0 +1,21 @@
+services:
+  notepad:
+    build: .
+    # Bind ONLY to an internal interface so the app is never publicly exposed.
+    # Replace 127.0.0.1 with your server's VPN/LAN address (e.g. 10.8.0.5), or
+    # keep 127.0.0.1 and put a reverse proxy (nginx/Caddy) in front for TLS.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Required — generate with:  openssl rand -hex 32
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in a .env file}
+      # true only if TLS terminates at THIS process (usually false; use a proxy)
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      # trust proxy setting when behind nginx/Caddy/Traefik
+      - TRUST_PROXY=${TRUST_PROXY:-loopback}
+    volumes:
+      - notepad-data:/data
+    restart: unless-stopped
+
+volumes:
+  notepad-data:

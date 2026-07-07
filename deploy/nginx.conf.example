@@ -1,0 +1,29 @@
+# Optional reverse proxy that terminates HTTPS in front of Notepad.
+# Recommended even on a VPN so cookies are Secure and traffic is encrypted.
+#
+# With this in front, run the app with:
+#   HOST=127.0.0.1 TRUST_PROXY=loopback COOKIE_SECURE=true  (or leave COOKIE_SECURE
+#   unset — the app auto-detects HTTPS from the X-Forwarded-Proto header).
+
+server {
+    listen 443 ssl;
+    server_name notes.internal.example.com;   # your internal hostname
+
+    ssl_certificate     /etc/ssl/notepad/fullchain.pem;
+    ssl_certificate_key /etc/ssl/notepad/privkey.pem;
+
+    # Only allow your VPN subnet to reach it (belt-and-suspenders with the VPN).
+    allow 10.8.0.0/24;   # <-- your VPN CIDR
+    deny  all;
+
+    client_max_body_size 4m;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;   # lets the app set Secure cookies
+    }
+}
