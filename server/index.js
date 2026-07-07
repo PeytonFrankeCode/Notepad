@@ -57,6 +57,24 @@ function withBacklinks(page) {
   return out;
 }
 
+// When a page is renamed, rewrite every [[old title]] reference in the notebook
+// to [[new title]] so links stay intact everywhere.
+function renameReferences(notebookId, oldLower, newTitle) {
+  const srcs = db.prepare('SELECT DISTINCT source_page_id AS id FROM links WHERE notebook_id = ? AND target_title_lower = ?')
+    .all(notebookId, oldLower);
+  const upd = db.prepare('UPDATE pages SET content = ?, updated_at = ? WHERE id = ?');
+  for (const { id } of srcs) {
+    const pg = db.prepare('SELECT * FROM pages WHERE id = ?').get(id);
+    if (!pg) continue;
+    const rewritten = pg.content.replace(/\[\[\s*([^\[\]]+?)\s*\]\]/g,
+      (m, inner) => (inner.trim().toLowerCase() === oldLower ? `[[${newTitle}]]` : m));
+    if (rewritten !== pg.content) {
+      upd.run(rewritten, now(), id);
+      syncLinks(notebookId, id, rewritten);
+    }
+  }
+}
+
 /* ---------------------------------- auth ---------------------------------- */
 
 app.post('/api/auth/register', (req, res) => {
@@ -210,16 +228,19 @@ app.put('/api/notebooks/:nbId/pages/:id', requireAuth, (req, res) => {
   const content = req.body?.content != null ? String(req.body.content) : page.content;
   let title = page.title;
   let titleLower = page.title_lower;
+  let renamedFrom = null;
   if (!page.is_daily && req.body?.title != null) {
     const nt = String(req.body.title).trim();
     if (!nt) return res.status(400).json({ error: 'Title cannot be empty' });
     const clash = findPageByTitle.get(nb.id, nt.toLowerCase());
     if (clash && clash.id !== page.id) return res.status(409).json({ error: 'Another page already has that title' });
+    if (nt.toLowerCase() !== page.title_lower) renamedFrom = page.title_lower;
     title = nt; titleLower = nt.toLowerCase();
   }
   db.prepare('UPDATE pages SET title = ?, title_lower = ?, content = ?, updated_at = ? WHERE id = ?')
     .run(title, titleLower, content, now(), page.id);
   syncLinks(nb.id, page.id, content);
+  if (renamedFrom) renameReferences(nb.id, renamedFrom, title);
   res.json(withBacklinks(findPageById.get(page.id, nb.id)));
 });
 

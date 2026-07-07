@@ -133,8 +133,10 @@ function toggleBlock(root, type) {
   const block = currentBlock(root, sel.getRangeAt(0).startContainer);
   if (!block) return;
   const isType = type === 'li' ? block.classList.contains('li') : /\bh[1-6]\b/.test(block.className);
+  const sel2 = window.getSelection();
+  const saved = sel2.rangeCount ? sel2.getRangeAt(0).cloneRange() : null;
   setBlockType(block, isType ? 'ln' : type);
-  caretToStart(block);
+  if (saved) { sel2.removeAllRanges(); sel2.addRange(saved); } // keep the caret where it was
 }
 
 function wrapCode(root) {
@@ -284,13 +286,19 @@ export function editableNote(page, ctx) {
     function onKeydown(e) {
       if (ac.handleKey(e)) return;
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); document.execCommand('bold'); return; }
-      if (mod && (e.key === 'i' || e.key === 'I')) { e.preventDefault(); document.execCommand('italic'); return; }
+      const k = e.key.toLowerCase();
+      if (mod && e.shiftKey && (k === 's')) { e.preventDefault(); document.execCommand('strikeThrough'); afterFormat(); return; }
+      if (mod && e.shiftKey && (k === 'h')) { e.preventDefault(); toggleBlock(view, 'h'); afterFormat(); return; }
+      if (mod && e.shiftKey && e.code === 'Digit8') { e.preventDefault(); toggleBlock(view, 'li'); afterFormat(); return; }
+      if (mod && !e.shiftKey && (k === 'b')) { e.preventDefault(); document.execCommand('bold'); afterFormat(); return; }
+      if (mod && !e.shiftKey && (k === 'i')) { e.preventDefault(); document.execCommand('italic'); afterFormat(); return; }
+      if (mod && !e.shiftKey && (k === 'e')) { e.preventDefault(); wrapCode(view); afterFormat(); return; }
       if (mod && e.key === 'Enter') { e.preventDefault(); view.blur(); return; }
       if (e.key === 'Escape') { e.preventDefault(); view.blur(); return; }
       if (e.key === 'Tab') { if (handleTab(view, e.shiftKey)) e.preventDefault(); return; }
       if (e.key === 'Enter' && !e.shiftKey) { if (handleEnter(view)) e.preventDefault(); }
     }
+    function afterFormat() { ac.refresh(); autosave(); }
 
     let committed = false;
     function onBlur() { setTimeout(commit, 150); }
