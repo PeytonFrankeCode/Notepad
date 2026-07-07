@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import db from './db.js';
 
-const COOKIE = 'notepad_token';
+const COOKIE = 'nodebook_token';
 const TTL = '30d';
 
 // For a self-hosted server, SET JWT_SECRET in the environment so sessions
@@ -11,7 +11,7 @@ const TTL = '30d';
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   JWT_SECRET = crypto.randomBytes(32).toString('hex');
-  console.warn('[notepad] JWT_SECRET not set — using a random secret; sessions reset on restart.');
+  console.warn('[nodebook] JWT_SECRET not set — using a random secret; sessions reset on restart.');
 }
 
 export const hashPassword = (pw) => bcrypt.hashSync(pw, 10);

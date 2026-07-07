@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const dbPath = process.env.DB_PATH || join(__dirname, '..', 'data', 'notepad.sqlite');
+const dbPath = process.env.DB_PATH || join(__dirname, '..', 'data', 'nodebook.sqlite');
 mkdirSync(dirname(dbPath), { recursive: true });
 
 const db = new Database(dbPath);

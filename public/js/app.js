@@ -3,8 +3,8 @@ import { el, renderNoteHtml, formatDate, todayISO, debounce } from './util.js';
 import { editableNote } from './editor.js';
 
 const root = document.getElementById('root');
-const LS_NB = 'notepad.notebookId';
-const LS_SORT = 'notepad.pageSort';
+const LS_NB = 'nodebook.notebookId';
+const LS_SORT = 'nodebook.pageSort';
 
 const state = {
   user: null,
@@ -75,7 +75,7 @@ function renderAuth() {
 
     root.append(el('div', { class: 'auth-wrap' }, [
       el('div', { class: 'auth-card' }, [
-        el('div', { class: 'auth-brand' }, [el('span', { class: 'logo', text: '📓' }), el('span', { text: 'Notepad' })]),
+        el('div', { class: 'auth-brand' }, [el('span', { class: 'logo', text: '📓' }), el('span', { text: 'Nodebook' })]),
         el('p', { class: 'auth-tag', text: 'Daily notes, backlinks, and notebooks — your own private space.' }),
         form,
         el('button', {
@@ -110,6 +110,7 @@ function renderMain() {
   main.innerHTML = '<div class="loading">Loading…</div>';
   if (state.view === 'daily') renderDaily(main);
   else if (state.view === 'day') renderDay(main);
+  else if (state.view === 'tasks') renderTasks(main);
   else renderPage(main);
 }
 
@@ -132,7 +133,7 @@ function openDay(date) {
 
 function renderSidebar() {
   const side = el('aside', { class: 'sidebar' });
-  side.append(el('div', { class: 'brand' }, [el('span', { class: 'logo', text: '📓' }), el('span', { text: 'Notepad' })]));
+  side.append(el('div', { class: 'brand' }, [el('span', { class: 'logo', text: '📓' }), el('span', { text: 'Nodebook' })]));
 
   const select = el('select', { class: 'nb-select', onChange: (e) => switchNotebook(Number(e.target.value)) });
   for (const n of state.notebooks) {
@@ -149,6 +150,8 @@ function renderSidebar() {
 
   side.append(el('button', { class: `nav-item${state.view === 'daily' ? ' active' : ''}`, onClick: () => navigate('daily') },
     [el('span', { class: 'nav-ic', text: '🗓️' }), 'Daily Notes']));
+  side.append(el('button', { class: `nav-item${state.view === 'tasks' ? ' active' : ''}`, onClick: () => navigate('tasks') },
+    [el('span', { class: 'nav-ic', text: '✅' }), 'Tasks']));
 
   const search = el('input', { class: 'search', type: 'search', placeholder: 'Search this notebook…' });
   const results = el('div', { class: 'page-list' });
@@ -260,6 +263,7 @@ const SHORTCUTS = [
   { keys: ['⌘/Ctrl', '⇧', 'S'], desc: 'Strikethrough' },
   { keys: ['⌘/Ctrl', 'E'], desc: 'Inline code' },
   { keys: ['⌘/Ctrl', '⇧', '8'], desc: 'Toggle bullet' },
+  { keys: ['⌘/Ctrl', '⇧', '9'], desc: 'Toggle checkbox task' },
   { keys: ['⌘/Ctrl', '⇧', 'H'], desc: 'Toggle heading' },
   { keys: ['Tab'], desc: 'Indent bullet' },
   { keys: ['⇧', 'Tab'], desc: 'Outdent bullet' },
@@ -300,14 +304,75 @@ function isTyping(t) {
 
 function setupGlobalKeys() {
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && document.querySelector('.modal-overlay')) { closeShortcuts(); return; }
+    if (e.key === 'Escape') { closeShortcuts(); closePalette(); return; }
     if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-      const s = document.querySelector('.search');
-      if (s) { e.preventDefault(); s.focus(); }
+      if (state.user) { e.preventDefault(); openPalette(); }
       return;
     }
     if (e.key === '?' && !isTyping(e.target)) { e.preventDefault(); openShortcuts(); }
   });
+}
+
+/* ----------------------------- command palette ---------------------------- */
+
+function closePalette() { document.querySelectorAll('.palette-overlay').forEach((m) => m.remove()); }
+
+async function openPalette() {
+  closePalette();
+  let pages = [];
+  try { pages = await api.listPages(state.notebookId); } catch { /* ignore */ }
+
+  const input = el('input', { class: 'palette-input', type: 'text', placeholder: 'Jump to a page or day, or create one…', autocomplete: 'off' });
+  const list = el('div', { class: 'palette-list' });
+  const overlay = el('div', { class: 'palette-overlay', onClick: (e) => { if (e.target === overlay) closePalette(); } },
+    [el('div', { class: 'palette' }, [input, list])]);
+  document.body.append(overlay);
+  input.focus();
+
+  let items = [];
+  let active = 0;
+
+  const build = () => {
+    const q = input.value.trim();
+    const ql = q.toLowerCase();
+    const matched = pages
+      .filter((p) => (p.isDaily ? formatDate(p.dailyDate).full : p.title).toLowerCase().includes(ql))
+      .slice(0, 20)
+      .map((p) => ({ kind: 'page', page: p, label: p.isDaily ? formatDate(p.dailyDate).full : p.title, icon: p.isDaily ? '🗓️' : '📄' }));
+    items = [{ kind: 'today', label: 'Go to Today', icon: '⭐' }, ...matched];
+    if (q && !pages.some((p) => !p.isDaily && p.title.toLowerCase() === ql)) {
+      items.push({ kind: 'create', label: `Create page “${q}”`, icon: '＋', title: q });
+    }
+    active = Math.min(active, items.length - 1);
+    paint();
+  };
+  const paint = () => {
+    list.innerHTML = '';
+    items.forEach((it, i) => {
+      const row = el('div', { class: `palette-item${i === active ? ' active' : ''}` },
+        [el('span', { class: 'palette-ic', text: it.icon }), el('span', { text: it.label })]);
+      row.addEventListener('mousedown', (e) => { e.preventDefault(); choose(i); });
+      list.append(row);
+    });
+  };
+  const choose = (i) => {
+    const it = items[i];
+    if (!it) return;
+    closePalette();
+    if (it.kind === 'today') navigate('daily');
+    else if (it.kind === 'create') openPageByTitle(it.title);
+    else if (it.page.isDaily) openDay(it.page.dailyDate);
+    else openPageById(it.page.id);
+  };
+
+  input.addEventListener('input', build);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); active = (active + 1) % items.length; paint(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); active = (active - 1 + items.length) % items.length; paint(); }
+    else if (e.key === 'Enter') { e.preventDefault(); choose(active); }
+    else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+  });
+  build();
 }
 
 /* ------------------------------- navigation ------------------------------- */
@@ -332,6 +397,7 @@ function noteCtx(page, extra = {}) {
     getTitles: () => state.pageTitles,
     openLink: openPageByTitle,
     save: (content) => api.updatePage(state.notebookId, page.id, { content }),
+    toggleTask: (lineIndex) => api.toggleTask(state.notebookId, page.id, lineIndex),
     onSaved: () => refreshTitles(),
     ...extra,
   };
@@ -440,6 +506,50 @@ async function renderDay(main) {
   ]));
 }
 
+/* -------------------------------- tasks view ------------------------------ */
+
+async function renderTasks(main) {
+  let tasks;
+  try { tasks = await api.listTasks(state.notebookId); }
+  catch (e) { main.innerHTML = `<div class="error">${e.message}</div>`; return; }
+
+  main.innerHTML = '';
+  main.append(el('div', { class: 'view-head' }, [
+    el('h1', { text: 'Tasks' }),
+    el('span', { class: 'task-count', text: `${tasks.length} open` }),
+  ]));
+
+  if (!tasks.length) {
+    main.append(el('div', { class: 'tasks-empty' }, ['🎉 No open tasks. Add one in a note with ', el('code', { text: '- [ ] something' }), '.']));
+    return;
+  }
+
+  const wrap = el('div', { class: 'tasks-list' });
+  for (const t of tasks) {
+    const srcLabel = t.isDaily ? formatDate(t.dailyDate).full : t.title;
+    const box = el('span', { class: 'task-box', role: 'checkbox', 'aria-checked': 'false', 'data-checked': '0' });
+    const row = el('div', { class: 'task-row' }, [
+      box,
+      el('div', { class: 'task-main' }, [
+        el('div', { class: 'task-text', html: renderNoteHtml(t.text, { placeholder: '' }) }),
+        el('button', { class: 'task-src', onClick: () => (t.isDaily ? openDay(t.dailyDate) : openPageById(t.pageId)) }, srcLabel),
+      ]),
+    ]);
+    box.addEventListener('click', async () => {
+      box.dataset.checked = '1'; box.setAttribute('aria-checked', 'true');
+      row.classList.add('checking');
+      try {
+        await api.toggleTask(state.notebookId, t.pageId, t.lineIndex);
+        row.style.height = `${row.offsetHeight}px`;
+        row.classList.add('done-out');
+        setTimeout(() => { row.remove(); const n = wrap.querySelectorAll('.task-row').length; document.querySelector('.task-count').textContent = `${n} open`; if (!n) renderTasks(main); }, 180);
+      } catch { box.dataset.checked = '0'; box.setAttribute('aria-checked', 'false'); row.classList.remove('checking'); }
+    });
+    wrap.append(row);
+  }
+  main.append(wrap);
+}
+
 /* -------------------------------- page view ------------------------------- */
 
 async function renderPage(main) {
@@ -465,11 +575,42 @@ async function renderPage(main) {
 
   const blWrap = el('div', { class: 'backlinks' });
   const note = editableNote(page, noteCtx(page, {
-    onSaved: () => { renderBacklinks(blWrap, page); refreshTitles(); },
+    onSaved: () => { renderBacklinks(blWrap, page); refreshTitles(); loadUnlinked(page, unlinkedWrap); },
   }));
   renderBacklinks(blWrap, page);
 
-  main.append(el('div', { class: 'page-body' }, [title, note.wrap, el('div', { class: 'bl-sep' }), blWrap]));
+  const unlinkedWrap = el('div', { class: 'unlinked' });
+  main.append(el('div', { class: 'page-body' }, [title, note.wrap, el('div', { class: 'bl-sep' }), blWrap, unlinkedWrap]));
+  loadUnlinked(page, unlinkedWrap);
+}
+
+// Show notes that mention this page's title as plain text, with a Link action.
+async function loadUnlinked(page, wrap) {
+  wrap.innerHTML = '';
+  let mentions = [];
+  try { mentions = await api.unlinked(state.notebookId, page.id); } catch { return; }
+  if (!mentions.length) return;
+  wrap.append(el('div', { class: 'bl-head', text: `${mentions.length} unlinked mention${mentions.length > 1 ? 's' : ''}` }));
+  for (const m of mentions) {
+    const label = m.isDaily ? formatDate(m.dailyDate).full : m.title;
+    const item = el('div', { class: 'bl-item' }, [
+      el('div', { class: 'unlinked-top' }, [
+        el('a', { class: 'bl-title', href: '#', onClick: (e) => { e.preventDefault(); m.isDaily ? openDay(m.dailyDate) : openPageById(m.id); } }, label),
+        el('button', { class: 'link-mention-btn', title: `Link this mention to ${page.title}`,
+          onClick: async (e) => {
+            e.preventDefault();
+            const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Linking…';
+            try {
+              Object.assign(page, await api.linkMention(state.notebookId, page.id, m.id));
+              await refreshTitles();
+              renderApp();
+            } catch (ex) { alert(ex.message); btn.disabled = false; btn.textContent = 'Link'; }
+          } }, 'Link'),
+      ]),
+      el('div', { class: 'bl-context', html: renderNoteHtml(m.snippet || '', { placeholder: '' }) }),
+    ]);
+    wrap.append(item);
+  }
 }
 
 async function deleteCurrentPage() {

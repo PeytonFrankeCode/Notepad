@@ -1,6 +1,6 @@
-# Deploying Notepad on your own server (WireGuard, step by step)
+# Deploying Nodebook on your own server (WireGuard, step by step)
 
-This walks you through hosting Notepad on your Linux server so that **only
+This walks you through hosting Nodebook on your Linux server so that **only
 people connected to your WireGuard VPN** can reach it. No prior experience
 assumed. Commands are for **Ubuntu/Debian**; other distros differ only in the
 install step.
@@ -23,19 +23,19 @@ starting with `#` are comments.
 
 ## Step 1 — Connect to the server and get the code
 
-SSH into your server, then clone the repo into `/opt/notepad`:
+SSH into your server, then clone the repo into `/opt/nodebook`:
 
 ```bash
-$ sudo mkdir -p /opt/notepad
-$ sudo chown "$USER" /opt/notepad
-$ git clone <YOUR_REPO_URL> /opt/notepad
-$ cd /opt/notepad
+$ sudo mkdir -p /opt/nodebook
+$ sudo chown "$USER" /opt/nodebook
+$ git clone <YOUR_REPO_URL> /opt/nodebook
+$ cd /opt/nodebook
 $ git checkout claude/notetaking-daily-backlinks-vzf64y
 ```
 
 ## Step 2 — Find your WireGuard address
 
-Notepad should listen on the server's **WireGuard IP** so it's only reachable
+Nodebook should listen on the server's **WireGuard IP** so it's only reachable
 through the VPN. Find it:
 
 ```bash
@@ -126,11 +126,11 @@ $ git pull
 $ docker compose up -d --build
 
 # Back up your notes (all data is in the named volume)
-$ docker run --rm -v notepad_notepad-data:/data -v "$PWD":/backup busybox \
-    tar czf /backup/notepad-backup.tar.gz -C /data .
+$ docker run --rm -v nodebook_nodebook-data:/data -v "$PWD":/backup busybox \
+    tar czf /backup/nodebook-backup.tar.gz -C /data .
 ```
 
-Your database is a single SQLite file inside the `notepad-data` Docker volume.
+Your database is a single SQLite file inside the `nodebook-data` Docker volume.
 Backing up that `.tar.gz` (or the volume) preserves everything.
 
 ---
@@ -139,7 +139,7 @@ Backing up that `.tar.gz` (or the volume) preserves everything.
 
 You can run it directly with Node instead and manage it via systemd — see the
 "Run with Node" section of the [README](README.md) and
-[`deploy/notepad.service`](deploy/notepad.service).
+[`deploy/nodebook.service`](deploy/nodebook.service).
 
 ---
 

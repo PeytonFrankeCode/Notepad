@@ -1,4 +1,4 @@
-// Self-hosted Notepad server (Node + Express + SQLite). Serves the same
+// Self-hosted Nodebook server (Node + Express + SQLite). Serves the same
 // frontend and API as the Cloudflare build. Intended to run on an internal
 // host reachable only over your VPN.
 
@@ -73,6 +73,40 @@ function renameReferences(notebookId, oldLower, newTitle) {
       syncLinks(notebookId, id, rewritten);
     }
   }
+}
+
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Extract checkbox tasks from note content: "- [ ] ..." / "- [x] ...".
+function extractTasks(content) {
+  const out = [];
+  content.split(/\r?\n/).forEach((line, i) => {
+    const m = /^[ \t]*[-*]\s+\[([ xX])\]\s+(.*)$/.exec(line);
+    if (m) out.push({ lineIndex: i, checked: m[1].toLowerCase() === 'x', text: m[2].trim() });
+  });
+  return out;
+}
+
+// Notes in a notebook that mention `title` as plain text OUTSIDE any [[ ]].
+function unlinkedMentions(notebookId, selfId, title) {
+  const re = new RegExp(`\\b${escapeRegex(title)}\\b`, 'i');
+  const rows = db.prepare('SELECT * FROM pages WHERE notebook_id = ? AND id != ?').all(notebookId, selfId);
+  const hits = [];
+  for (const p of rows) {
+    const outsideLinks = p.content.replace(/\[\[[^\[\]]*\]\]/g, '');
+    if (!re.test(outsideLinks)) continue;
+    const snippet = (p.content.split(/\r?\n/).find((ln) => re.test(ln.replace(/\[\[[^\[\]]*\]\]/g, ''))) || '').trim();
+    hits.push({ id: p.id, title: p.title, isDaily: !!p.is_daily, dailyDate: p.daily_date, updatedAt: p.updated_at, snippet });
+  }
+  return hits.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+}
+
+// Wrap unlinked occurrences of `title` with [[ ]] in text, skipping bracketed parts.
+function linkTitleIn(content, title) {
+  const re = new RegExp(`\\b${escapeRegex(title)}\\b`, 'gi');
+  return content.split(/(\[\[[^\[\]]*\]\])/g)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(re, `[[${title}]]`)))
+    .join('');
 }
 
 /* ---------------------------------- auth ---------------------------------- */
@@ -252,6 +286,57 @@ app.delete('/api/notebooks/:nbId/pages/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Open tasks across the whole notebook (the rollup).
+app.get('/api/notebooks/:nbId/tasks', requireAuth, (req, res) => {
+  const nb = withNotebook(req, res); if (!nb) return;
+  const rows = db.prepare('SELECT * FROM pages WHERE notebook_id = ? ORDER BY is_daily DESC, daily_date DESC, updated_at DESC').all(nb.id);
+  const open = [];
+  for (const p of rows) {
+    for (const t of extractTasks(p.content)) {
+      if (t.checked) continue;
+      open.push({ pageId: p.id, title: p.title, isDaily: !!p.is_daily, dailyDate: p.daily_date, text: t.text, lineIndex: t.lineIndex });
+    }
+  }
+  res.json(open);
+});
+
+// Toggle a single checkbox by line index.
+app.post('/api/notebooks/:nbId/pages/:id/toggle-task', requireAuth, (req, res) => {
+  const nb = withNotebook(req, res); if (!nb) return;
+  const page = findPageById.get(Number(req.params.id), nb.id);
+  if (!page) return res.status(404).json({ error: 'Page not found' });
+  const idx = Number(req.body?.lineIndex);
+  const lines = page.content.split(/\r?\n/);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= lines.length) return res.status(400).json({ error: 'Invalid line' });
+  lines[idx] = lines[idx].replace(/^(\s*[-*]\s+)\[([ xX])\]/, (m, pre, mark) => `${pre}[${mark.toLowerCase() === 'x' ? ' ' : 'x'}]`);
+  const content = lines.join('\n');
+  db.prepare('UPDATE pages SET content = ?, updated_at = ? WHERE id = ?').run(content, now(), page.id);
+  res.json(withBacklinks(findPageById.get(page.id, nb.id)));
+});
+
+// Unlinked mentions of a page.
+app.get('/api/notebooks/:nbId/pages/:id/unlinked', requireAuth, (req, res) => {
+  const nb = withNotebook(req, res); if (!nb) return;
+  const page = findPageById.get(Number(req.params.id), nb.id);
+  if (!page) return res.status(404).json({ error: 'Page not found' });
+  res.json(unlinkedMentions(nb.id, page.id, page.title));
+});
+
+// Convert unlinked mentions of this page (in one source note) into [[links]].
+app.post('/api/notebooks/:nbId/pages/:id/link-mention', requireAuth, (req, res) => {
+  const nb = withNotebook(req, res); if (!nb) return;
+  const page = findPageById.get(Number(req.params.id), nb.id);
+  if (!page) return res.status(404).json({ error: 'Page not found' });
+  const src = findPageById.get(Number(req.body?.sourceId), nb.id);
+  if (!src) return res.status(404).json({ error: 'Source note not found' });
+  const content = linkTitleIn(src.content, page.title);
+  if (content !== src.content) {
+    db.prepare('UPDATE pages SET content = ?, updated_at = ? WHERE id = ?').run(content, now(), src.id);
+    syncLinks(nb.id, src.id, content);
+  }
+  res.json(withBacklinks(findPageById.get(page.id, nb.id)));
+});
+
 /* --------------------------------- static --------------------------------- */
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
@@ -260,4 +345,4 @@ app.get('*', (req, res) => res.sendFile(join(__dirname, '..', 'public', 'index.h
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-app.listen(PORT, HOST, () => console.log(`Notepad (self-hosted) listening on http://${HOST}:${PORT}`));
+app.listen(PORT, HOST, () => console.log(`Nodebook (self-hosted) listening on http://${HOST}:${PORT}`));

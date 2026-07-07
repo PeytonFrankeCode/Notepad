@@ -1,4 +1,4 @@
-# 📓 Notepad
+# 📓 Nodebook
 
 A self-hosted, [Reflect](https://reflect.app)-style notetaking app: a
 **continuous daily log**, wiki-style **`[[backlinks]]`** with nested-bullet
@@ -47,7 +47,7 @@ export PORT=3000
 npm start
 ```
 
-To run it as a boot service, see [`deploy/notepad.service`](deploy/notepad.service).
+To run it as a boot service, see [`deploy/nodebook.service`](deploy/nodebook.service).
 
 Then open the app, click **Sign up** (a starter "My Notes" notebook is created),
 and start writing.
@@ -75,7 +75,7 @@ There's a full step-by-step WireGuard walkthrough in [`DEPLOY.md`](DEPLOY.md).
 | `JWT_SECRET`    | random per start        | **Set this** so sessions survive restarts. Keep it secret.     |
 | `HOST`          | `0.0.0.0`               | Interface to bind — set to your VPN/LAN IP or `127.0.0.1`.     |
 | `PORT`          | `3000`                  | Port to listen on.                                             |
-| `DB_PATH`       | `./data/notepad.sqlite` | SQLite database file location.                                 |
+| `DB_PATH`       | `./data/nodebook.sqlite` | SQLite database file location.                                 |
 | `COOKIE_SECURE` | auto                    | Force `Secure` cookies. Usually left to auto-detect via proxy. |
 | `TRUST_PROXY`   | `loopback`              | Express trust-proxy value when behind a reverse proxy.         |
 

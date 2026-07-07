@@ -70,14 +70,24 @@ export function bulletLevel(line) {
 // (nesting by leading whitespace); "# " lines become headings.
 export function renderNoteHtml(text, { placeholder = 'Empty — click to write…' } = {}) {
   if (!text || !text.trim()) return `<div class="placeholder">${escapeHtml(placeholder)}</div>`;
+  const lines = text.split(/\r?\n/);
   const out = [];
-  for (const raw of text.split(/\r?\n/)) {
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
     if (!raw.trim()) { out.push('<div class="blank"></div>'); continue; }
     const h = /^(#{1,6})\s+(.*)$/.exec(raw);
     if (h) { out.push(`<div class="h h${h[1].length}">${inline(h[2])}</div>`); continue; }
     const b = /^([ \t]*)[-*]\s+(.*)$/.exec(raw);
     if (b) {
       const lvl = Math.floor(b[1].replace(/\t/g, '  ').length / 2);
+      const t = /^\[([ xX])\]\s+(.*)$/.exec(b[2]);
+      if (t) {
+        const done = t[1].toLowerCase() === 'x';
+        out.push(`<div class="li task${done ? ' done' : ''}" style="--lvl:${lvl}">`
+          + `<span class="task-box" contenteditable="false" role="checkbox" aria-checked="${done}" data-line="${i}" data-checked="${done ? 1 : 0}"></span>`
+          + `<span class="task-text">${inline(t[2])}</span></div>`);
+        continue;
+      }
       out.push(`<div class="li" style="--lvl:${lvl}">${inline(b[2])}</div>`);
       continue;
     }

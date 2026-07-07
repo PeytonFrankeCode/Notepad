@@ -1,5 +1,5 @@
 {
-  "name": "notepad",
+  "name": "nodebook",
   "version": "2.0.0",
   "description": "A self-hosted Reflect-style notetaking app: daily log, backlinks, rich text, accounts, and isolated notebooks. Node + Express + SQLite.",
   "private": true,

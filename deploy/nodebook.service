@@ -1,25 +1,25 @@
-# systemd unit for running Notepad directly with Node (no Docker).
-# 1. Put the repo at /opt/notepad and run: npm ci --omit=dev
+# systemd unit for running Nodebook directly with Node (no Docker).
+# 1. Put the repo at /opt/nodebook and run: npm ci --omit=dev
 # 2. Edit the paths/user/IP below, then:
-#      sudo cp deploy/notepad.service /etc/systemd/system/
-#      sudo systemctl daemon-reload && sudo systemctl enable --now notepad
-# 3. Check:  systemctl status notepad   /   journalctl -u notepad -f
+#      sudo cp deploy/nodebook.service /etc/systemd/system/
+#      sudo systemctl daemon-reload && sudo systemctl enable --now nodebook
+# 3. Check:  systemctl status nodebook   /   journalctl -u nodebook -f
 
 [Unit]
-Description=Notepad (self-hosted notes)
+Description=Nodebook (self-hosted notes)
 After=network.target
 
 [Service]
 Type=simple
-User=notepad
-WorkingDirectory=/opt/notepad
+User=nodebook
+WorkingDirectory=/opt/nodebook
 ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=3
 
 # --- configuration ---
 Environment=NODE_ENV=production
-Environment=DB_PATH=/var/lib/notepad/notepad.sqlite
+Environment=DB_PATH=/var/lib/nodebook/nodebook.sqlite
 # Bind to your VPN/LAN interface so it isn't publicly reachable (or 127.0.0.1
 # if a reverse proxy on this host handles TLS).
 Environment=HOST=127.0.0.1
@@ -35,7 +35,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/notepad
+ReadWritePaths=/var/lib/nodebook
 
 [Install]
 WantedBy=multi-user.target

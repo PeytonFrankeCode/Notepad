@@ -1,4 +1,4 @@
-# Self-hosted Notepad (Node + Express + SQLite).
+# Self-hosted Nodebook (Node + Express + SQLite).
 FROM node:22-slim
 
 WORKDIR /app
@@ -13,7 +13,7 @@ COPY public ./public
 ENV NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \
-    DB_PATH=/data/notepad.sqlite
+    DB_PATH=/data/nodebook.sqlite
 
 # SQLite data lives here — mount a volume so it survives container restarts.
 VOLUME ["/data"]

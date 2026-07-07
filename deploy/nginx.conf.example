@@ -1,4 +1,4 @@
-# Optional reverse proxy that terminates HTTPS in front of Notepad.
+# Optional reverse proxy that terminates HTTPS in front of Nodebook.
 # Recommended even on a VPN so cookies are Secure and traffic is encrypted.
 #
 # With this in front, run the app with:
@@ -9,8 +9,8 @@ server {
     listen 443 ssl;
     server_name notes.internal.example.com;   # your internal hostname
 
-    ssl_certificate     /etc/ssl/notepad/fullchain.pem;
-    ssl_certificate_key /etc/ssl/notepad/privkey.pem;
+    ssl_certificate     /etc/ssl/nodebook/fullchain.pem;
+    ssl_certificate_key /etc/ssl/nodebook/privkey.pem;
 
     # Only allow your VPN subnet to reach it (belt-and-suspenders with the VPN).
     allow 10.8.0.0/24;   # <-- your VPN CIDR

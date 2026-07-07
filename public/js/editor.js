@@ -31,6 +31,7 @@ function inlineToText(node) {
     if (c.nodeType !== 1) continue;
     const tag = c.tagName;
     if (c.classList && c.classList.contains('wikilink')) { out += `[[${c.dataset.link || c.textContent}]]`; continue; }
+    if (c.classList && c.classList.contains('task-box')) { out += c.dataset.checked === '1' ? '[x] ' : '[ ] '; continue; }
     if (tag === 'BR') { out += '\n'; continue; }
     if (tag === 'A') { out += c.getAttribute('href') || c.textContent; continue; }
     if (tag === 'STRONG' || tag === 'B') { out += `**${inlineToText(c)}**`; continue; }
@@ -139,6 +140,33 @@ function toggleBlock(root, type) {
   if (saved) { sel2.removeAllRanges(); sel2.addRange(saved); } // keep the caret where it was
 }
 
+function toggleTaskLine(root) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const block = currentBlock(root, sel.getRangeAt(0).startContainer);
+  if (!block) return;
+  if (!block.classList.contains('li')) setBlockType(block, 'li', 0);
+  if (block.classList.contains('task')) {
+    block.classList.remove('task', 'done');
+    const box = block.querySelector('.task-box');
+    const text = block.querySelector('.task-text');
+    if (box) box.remove();
+    if (text) { while (text.firstChild) block.insertBefore(text.firstChild, text); text.remove(); }
+  } else {
+    block.classList.add('task');
+    const box = document.createElement('span');
+    box.className = 'task-box'; box.setAttribute('contenteditable', 'false');
+    box.dataset.checked = '0'; box.setAttribute('role', 'checkbox'); box.setAttribute('aria-checked', 'false');
+    const text = document.createElement('span');
+    text.className = 'task-text';
+    while (block.firstChild) text.appendChild(block.firstChild);
+    if (!text.textContent) text.appendChild(document.createTextNode(''));
+    block.appendChild(box); block.appendChild(text);
+    const r = document.createRange(); r.selectNodeContents(text); r.collapse(false);
+    sel.removeAllRanges(); sel.addRange(r);
+  }
+}
+
 function wrapCode(root) {
   const sel = window.getSelection();
   if (!sel.rangeCount || sel.isCollapsed) return;
@@ -240,6 +268,7 @@ const TOOLS = [
   { label: '‹›', cls: 'tb-code', title: 'Inline code', run: (root) => wrapCode(root) },
   { label: 'H', cls: 'tb-h', title: 'Heading', run: (root) => toggleBlock(root, 'h') },
   { label: '•', cls: 'tb-ul', title: 'Bullet list', run: (root) => toggleBlock(root, 'li') },
+  { label: '☑', cls: 'tb-task', title: 'Checkbox task', run: (root) => toggleTaskLine(root) },
 ];
 
 /* ------------------------------ editable note ----------------------------- */
@@ -253,13 +282,37 @@ export function editableNote(page, ctx) {
   let toolbar = null;
   let ac = null;
 
-  view.addEventListener('mousedown', (e) => {
+  function flipBoxDom(box) {
+    const on = box.dataset.checked === '1';
+    box.dataset.checked = on ? '0' : '1';
+    box.setAttribute('aria-checked', String(!on));
+    const li = box.closest('.li');
+    if (li) li.classList.toggle('done', !on);
+  }
+  async function toggleTaskView(box) {
+    const line = Number(box.dataset.line);
+    try {
+      const u = await ctx.toggleTask(line);
+      Object.assign(page, u);
+      view.innerHTML = renderNoteHtml(page.content, opts);
+      ctx.onSaved?.(page);
+    } catch { /* ignore */ }
+  }
+
+  view.addEventListener('click', (e) => {
+    const box = e.target.closest('.task-box');
+    if (box) {
+      e.preventDefault(); e.stopPropagation();
+      if (editing) { flipBoxDom(box); view.dispatchEvent(new Event('input')); }
+      else toggleTaskView(box);
+      return;
+    }
     if (editing) return;
     const wl = e.target.closest('a.wikilink');
     if (wl) { e.preventDefault(); ctx.openLink(wl.dataset.link); return; }
     if (e.target.closest('a.exturl')) return;
+    enterEdit();
   });
-  view.addEventListener('click', () => { if (!editing) enterEdit(); });
 
   function enterEdit() {
     editing = true;
@@ -290,6 +343,7 @@ export function editableNote(page, ctx) {
       if (mod && e.shiftKey && (k === 's')) { e.preventDefault(); document.execCommand('strikeThrough'); afterFormat(); return; }
       if (mod && e.shiftKey && (k === 'h')) { e.preventDefault(); toggleBlock(view, 'h'); afterFormat(); return; }
       if (mod && e.shiftKey && e.code === 'Digit8') { e.preventDefault(); toggleBlock(view, 'li'); afterFormat(); return; }
+      if (mod && e.shiftKey && e.code === 'Digit9') { e.preventDefault(); toggleTaskLine(view); afterFormat(); return; }
       if (mod && !e.shiftKey && (k === 'b')) { e.preventDefault(); document.execCommand('bold'); afterFormat(); return; }
       if (mod && !e.shiftKey && (k === 'i')) { e.preventDefault(); document.execCommand('italic'); afterFormat(); return; }
       if (mod && !e.shiftKey && (k === 'e')) { e.preventDefault(); wrapCode(view); afterFormat(); return; }

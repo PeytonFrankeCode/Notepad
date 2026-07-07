@@ -44,4 +44,9 @@ export const api = {
   createPage: (nbId, title) => request('POST', `/api/notebooks/${nbId}/pages`, { title }),
   updatePage: (nbId, id, patch) => request('PUT', `/api/notebooks/${nbId}/pages/${id}`, patch),
   deletePage: (nbId, id) => request('DELETE', `/api/notebooks/${nbId}/pages/${id}`),
+
+  listTasks: (nbId) => request('GET', `/api/notebooks/${nbId}/tasks`),
+  toggleTask: (nbId, id, lineIndex) => request('POST', `/api/notebooks/${nbId}/pages/${id}/toggle-task`, { lineIndex }),
+  unlinked: (nbId, id) => request('GET', `/api/notebooks/${nbId}/pages/${id}/unlinked`),
+  linkMention: (nbId, id, sourceId) => request('POST', `/api/notebooks/${nbId}/pages/${id}/link-mention`, { sourceId }),
 };
