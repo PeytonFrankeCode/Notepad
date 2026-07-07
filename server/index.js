@@ -290,14 +290,13 @@ app.delete('/api/notebooks/:nbId/pages/:id', requireAuth, (req, res) => {
 app.get('/api/notebooks/:nbId/tasks', requireAuth, (req, res) => {
   const nb = withNotebook(req, res); if (!nb) return;
   const rows = db.prepare('SELECT * FROM pages WHERE notebook_id = ? ORDER BY is_daily DESC, daily_date DESC, updated_at DESC').all(nb.id);
-  const open = [];
+  const tasks = [];
   for (const p of rows) {
     for (const t of extractTasks(p.content)) {
-      if (t.checked) continue;
-      open.push({ pageId: p.id, title: p.title, isDaily: !!p.is_daily, dailyDate: p.daily_date, text: t.text, lineIndex: t.lineIndex });
+      tasks.push({ pageId: p.id, title: p.title, isDaily: !!p.is_daily, dailyDate: p.daily_date, createdAt: p.created_at, text: t.text, lineIndex: t.lineIndex, checked: t.checked });
     }
   }
-  res.json(open);
+  res.json(tasks);
 });
 
 // Toggle a single checkbox by line index.

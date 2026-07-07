@@ -508,46 +508,99 @@ async function renderDay(main) {
 
 /* -------------------------------- tasks view ------------------------------ */
 
+const taskView = { q: '', source: 'all', showDone: false, sortKey: 'day', sortDir: -1 };
+
 async function renderTasks(main) {
-  let tasks;
-  try { tasks = await api.listTasks(state.notebookId); }
+  let all;
+  try { all = await api.listTasks(state.notebookId); }
   catch (e) { main.innerHTML = `<div class="error">${e.message}</div>`; return; }
 
   main.innerHTML = '';
-  main.append(el('div', { class: 'view-head' }, [
-    el('h1', { text: 'Tasks' }),
-    el('span', { class: 'task-count', text: `${tasks.length} open` }),
-  ]));
+  const count = el('span', { class: 'task-count' });
+  main.append(el('div', { class: 'view-head' }, [el('h1', { text: 'Tasks' }), count]));
 
-  if (!tasks.length) {
-    main.append(el('div', { class: 'tasks-empty' }, ['🎉 No open tasks. Add one in a note with ', el('code', { text: '- [ ] something' }), '.']));
-    return;
-  }
+  const search = el('input', { class: 'search task-search', type: 'search', placeholder: 'Filter tasks…', value: taskView.q });
+  const source = el('select', { class: 'sort-select' }, [
+    el('option', { value: 'all', selected: taskView.source === 'all' }, 'All sources'),
+    el('option', { value: 'daily', selected: taskView.source === 'daily' }, 'Daily notes'),
+    el('option', { value: 'pages', selected: taskView.source === 'pages' }, 'Pages'),
+  ]);
+  const doneToggle = el('label', { class: 'task-done-toggle' }, [
+    el('input', { type: 'checkbox', ...(taskView.showDone ? { checked: '' } : {}) }), 'Show completed',
+  ]);
+  const tableWrap = el('div', { class: 'tasks-table-wrap' });
+  main.append(el('div', { class: 'tasks-toolbar' }, [search, source, doneToggle]), tableWrap);
 
-  const wrap = el('div', { class: 'tasks-list' });
-  for (const t of tasks) {
-    const srcLabel = t.isDaily ? formatDate(t.dailyDate).full : t.title;
-    const box = el('span', { class: 'task-box', role: 'checkbox', 'aria-checked': 'false', 'data-checked': '0' });
-    const row = el('div', { class: 'task-row' }, [
-      box,
-      el('div', { class: 'task-main' }, [
-        el('div', { class: 'task-text', html: renderNoteHtml(t.text, { placeholder: '' }) }),
-        el('button', { class: 'task-src', onClick: () => (t.isDaily ? openDay(t.dailyDate) : openPageById(t.pageId)) }, srcLabel),
-      ]),
-    ]);
-    box.addEventListener('click', async () => {
-      box.dataset.checked = '1'; box.setAttribute('aria-checked', 'true');
-      row.classList.add('checking');
-      try {
-        await api.toggleTask(state.notebookId, t.pageId, t.lineIndex);
-        row.style.height = `${row.offsetHeight}px`;
-        row.classList.add('done-out');
-        setTimeout(() => { row.remove(); const n = wrap.querySelectorAll('.task-row').length; document.querySelector('.task-count').textContent = `${n} open`; if (!n) renderTasks(main); }, 180);
-      } catch { box.dataset.checked = '0'; box.setAttribute('aria-checked', 'false'); row.classList.remove('checking'); }
+  search.addEventListener('input', () => { taskView.q = search.value; rebuild(); });
+  source.addEventListener('change', () => { taskView.source = source.value; rebuild(); });
+  doneToggle.querySelector('input').addEventListener('change', (e) => { taskView.showDone = e.target.checked; rebuild(); });
+
+  const dayVal = (t) => (t.isDaily ? t.dailyDate : '');
+  const pageVal = (t) => (t.isDaily ? '' : t.title);
+
+  function rebuild() {
+    const q = taskView.q.trim().toLowerCase();
+    let rows = all.filter((t) => {
+      if (!taskView.showDone && t.checked) return false;
+      if (taskView.source === 'daily' && !t.isDaily) return false;
+      if (taskView.source === 'pages' && t.isDaily) return false;
+      if (q && !t.text.toLowerCase().includes(q)) return false;
+      return true;
     });
-    wrap.append(row);
+    const dir = taskView.sortDir;
+    rows.sort((a, b) => {
+      let av; let bv;
+      if (taskView.sortKey === 'task') { av = a.text.toLowerCase(); bv = b.text.toLowerCase(); }
+      else if (taskView.sortKey === 'page') { av = pageVal(a).toLowerCase(); bv = pageVal(b).toLowerCase(); }
+      else { av = dayVal(a); bv = dayVal(b); } // day
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    count.textContent = `${all.filter((t) => !t.checked).length} open · ${rows.length} shown`;
+
+    tableWrap.innerHTML = '';
+    if (!rows.length) {
+      tableWrap.append(el('div', { class: 'tasks-empty' }, ['No tasks. Add one in a note with ', el('code', { text: '- [ ] something' }), ' (or the ☑ button).']));
+      return;
+    }
+    const arrow = (k) => (taskView.sortKey === k ? (taskView.sortDir === 1 ? ' ▲' : ' ▼') : '');
+    const th = (label, key) => {
+      const cell = el('th', { class: `th-sort${taskView.sortKey === key ? ' active' : ''}`, text: label + arrow(key) });
+      cell.addEventListener('click', () => {
+        if (taskView.sortKey === key) taskView.sortDir *= -1; else { taskView.sortKey = key; taskView.sortDir = key === 'task' ? 1 : -1; }
+        rebuild();
+      });
+      return cell;
+    };
+    const table = el('table', { class: 'tasks-table' }, [
+      el('thead', {}, [el('tr', {}, [el('th', { class: 'th-check' }), th('Task', 'task'), th('Day', 'day'), th('Page', 'page')])]),
+    ]);
+    const tbody = el('tbody');
+    for (const t of rows) {
+      const box = el('span', { class: 'task-box', role: 'checkbox', 'aria-checked': String(!!t.checked), 'data-checked': t.checked ? '1' : '0' });
+      const desc = el('td', { class: 'td-task' + (t.checked ? ' done' : ''), html: renderNoteHtml(t.text, { placeholder: '' }) });
+      desc.addEventListener('click', (e) => { const l = e.target.closest('a.wikilink'); if (l) { e.preventDefault(); openPageByTitle(l.dataset.link); } });
+      const dayCell = el('td', { class: 'td-day' }, t.isDaily
+        ? [el('a', { href: '#', class: 'cell-link', onClick: (e) => { e.preventDefault(); openDay(t.dailyDate); } }, formatDate(t.dailyDate).full)]
+        : [el('span', { class: 'muted', text: '—' })]);
+      const pageCell = el('td', { class: 'td-page' }, t.isDaily
+        ? [el('span', { class: 'muted', text: '—' })]
+        : [el('a', { href: '#', class: 'cell-link', onClick: (e) => { e.preventDefault(); openPageById(t.pageId); } }, t.title)]);
+      const tr = el('tr', { class: t.checked ? 'task-tr done' : 'task-tr' }, [el('td', { class: 'td-check' }, [box]), desc, dayCell, pageCell]);
+      box.addEventListener('click', async () => {
+        try {
+          await api.toggleTask(state.notebookId, t.pageId, t.lineIndex);
+          t.checked = !t.checked;
+          rebuild();
+        } catch (ex) { alert(ex.message); }
+      });
+      tbody.append(tr);
+    }
+    table.append(tbody);
+    tableWrap.append(table);
   }
-  main.append(wrap);
+  rebuild();
 }
 
 /* -------------------------------- page view ------------------------------- */

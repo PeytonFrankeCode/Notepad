@@ -224,17 +224,29 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .palette-item.active { background: var(--accent-soft); color: var(--accent); }
 .palette-ic { width: 18px; text-align: center; flex: none; }
 
-/* tasks rollup */
+/* tasks rollup (table) */
 .task-count { color: var(--text-faint); font-size: 13px; }
-.tasks-empty { color: var(--text-dim); max-width: 760px; }
+.tasks-empty { color: var(--text-dim); max-width: 920px; padding: 8px 0; }
 .tasks-empty code { font-family: var(--mono); font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
-.tasks-list { max-width: 760px; display: flex; flex-direction: column; }
-.task-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 2px; border-bottom: 1px solid var(--border); transition: opacity 0.15s ease, height 0.15s ease; }
-.task-row.done-out { opacity: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; height: 0 !important; }
-.task-main { flex: 1; min-width: 0; }
-.task-row .task-text { font-size: 15px; line-height: 1.5; }
-.task-src { display: inline-block; border: none; background: none; color: var(--text-faint); font-size: 12.5px; padding: 2px 0 0; cursor: pointer; }
-.task-src:hover { color: var(--accent); }
+.tasks-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; max-width: 920px; flex-wrap: wrap; }
+.task-search { flex: 1; min-width: 160px; }
+.task-done-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.tasks-table-wrap { max-width: 920px; overflow-x: auto; }
+.tasks-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.tasks-table thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.th-sort { cursor: pointer; user-select: none; }
+.th-sort:hover { color: var(--text-dim); }
+.th-sort.active { color: var(--accent); }
+.th-check { width: 28px; }
+.tasks-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.td-check { width: 28px; }
+.td-task { line-height: 1.5; }
+.td-task.done { color: var(--text-faint); text-decoration: line-through; }
+.td-day, .td-page { white-space: nowrap; color: var(--text-dim); }
+.cell-link { color: var(--link); text-decoration: none; }
+.cell-link:hover { text-decoration: underline; }
+.muted { color: var(--text-faint); }
+.task-tr:hover td { background: var(--surface-2); }
 
 /* unlinked mentions */
 .unlinked { margin-top: 20px; }
