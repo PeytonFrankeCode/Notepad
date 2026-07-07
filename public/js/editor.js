@@ -14,6 +14,19 @@ function currentBlock(root, node) {
   return n && n.nodeType === 1 ? n : null;
 }
 
+// Swap <strong>/<em>/<del> (from the renderer) for the <b>/<i>/<strike> tags
+// execCommand recognizes, so bold/italic/strike can be toggled off after a save.
+function normalizeInline(root) {
+  const map = { STRONG: 'b', EM: 'i', DEL: 'strike', S: 'strike' };
+  root.querySelectorAll('strong, em, del, s').forEach((old) => {
+    const name = map[old.tagName];
+    if (!name) return;
+    const ne = document.createElement(name);
+    while (old.firstChild) ne.appendChild(old.firstChild);
+    old.replaceWith(ne);
+  });
+}
+
 function caretToStart(node) {
   const sel = window.getSelection();
   const r = document.createRange();
@@ -318,6 +331,9 @@ export function editableNote(page, ctx) {
     editing = true;
     if (!page.content.trim()) view.innerHTML = '<div class="ln"><br></div>';
     view.querySelectorAll('a.wikilink').forEach((a) => a.setAttribute('contenteditable', 'false'));
+    // Normalize semantic tags to the ones execCommand toggles, so formatting
+    // applied in a previous session can be turned back off.
+    normalizeInline(view);
     view.setAttribute('contenteditable', 'true');
     view.classList.add('editing');
     try { document.execCommand('styleWithCSS', false, false); } catch { /* ok */ }
