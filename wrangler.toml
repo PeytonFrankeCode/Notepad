@@ -1,0 +1,11 @@
+name = "notepad"
+compatibility_date = "2024-11-06"
+pages_build_output_dir = "public"
+
+# Cloudflare D1 (SQLite) database binding.
+# 1. Create it once:      npx wrangler d1 create notepad-db
+# 2. Paste the printed    database_id      value below.
+[[d1_databases]]
+binding = "DB"
+database_name = "notepad-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
